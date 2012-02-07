@@ -49,6 +49,22 @@ uintptr_t cnt_ddr;
 uintptr_t cnt_port_a;
 uintptr_t cnt_port_b;
 
+
+typedef struct{
+	uintptr_t cnt_port;	//port that encoder is hooked to
+	char lastRead;		//copy of last port read for edge detection
+	char read;		//current port read
+	char debounce;		//used to debounce channel A
+	char channel_a_mask;	//bitmask for channel A pin
+	char channel_b_mask;	//bitmask for channel B pin
+	int first_index;	//index that first index rising edge was found at.
+	int position;		//current position encoder is at	
+
+}encoder_dat;
+
+
+
+
 /* ******************************************************************
  * Initiaize register handles
  *****************************************************************/
@@ -182,36 +198,54 @@ int main(int argc, char *argv[]) {
 		}
 
 
-
-
-
 	}
 	return EXIT_SUCCESS;
 }
 
+void updateEncoder(encoder_dat* data){
+	data->last_read=data->read;
+	data->read = in8(data->cnt_port); //read encoder port
+
+	if( ((channel_a_mask)& data->read) &&! ((channel_a_mask)& last_data->read)){ //rising edge for channel A
+
+		if (((channel_b_mask) & data->read) && data->debounce){ //if B is high
+			data->position++;
+		}
+		else if (data->debounce){ //b is low
+			data->position--;
+		}
+		data->debounce = 0;
+	}
+
+	if(((channel_b_mask)& data->read) &&! ((channel_b_mask)& last_data->read)){ //rising edge for channelnel B
+		data->debounce = 1;
+
+	}
+}
+
 
 void * Input (void* arg){
-/*	while(1){
+	/*	while(1){
 
-		//sem_wait
-		sem_wait(&inputSemaphore);
+	//sem_wait
+	sem_wait(&inputSemaphore);
 
-		//Reading input from purplebox Analog input
+	//Reading input from purplebox Analog input
 
-		//write to STRTAD (base + 0) OR 1000 0000 (to start A/D conversion).
-		out8(cnt_base, 0x80);
+	//write to STRTAD (base + 0) OR 1000 0000 (to start A/D conversion).
+	out8(cnt_base, 0x80);
 
-		//wait until base + 3 < 128
-		while (in8(cnt_input_rng) & 0x80); //wait for conversion to finish before proceeding
-		//then read A/D at base + 0(lsb) and Base + 1 (msb)
-		int LSB = in8(cnt_base);
-		int8_t MSB = in8(cnt_base_plus);
+	//wait until base + 3 < 128
+	while (in8(cnt_input_rng) & 0x80); //wait for conversion to finish before proceeding
+	//then read A/D at base + 0(lsb) and Base + 1 (msb)
+	int LSB = in8(cnt_base);
+	int8_t MSB = in8(cnt_base_plus);
 
-		//convert and add together
-		//	->  lsb + msb*256
-		double read = MSB*256 + LSB;
-		//convert into analog number (using scale)
-		read = read /32768 * 10;
-		sem_post(&controlSemaphore);
+	//convert and add together
+	//	->  lsb + msb*256
+	double read = MSB*256 + LSB;
+	//convert into analog number (using scale)
+	read = read /32768 * 10;
+	sem_post(&controlSemaphore);
 	}//while true*/
 }
