@@ -52,17 +52,84 @@ uintptr_t cnt_port_b;
 
 typedef struct{
 	uintptr_t cnt_port;	//port that encoder is hooked to
-	char lastRead;		//copy of last port read for edge detection
+	char last_read;		//copy of last port read for edge detection
 	char read;		//current port read
 	char debounce;		//used to debounce channel A
-	char channel_a_mask;	//bitmask for channel A pin
-	char channel_b_mask;	//bitmask for channel B pin
+	char a_mask;	//bitmask for channel A pin
+	char b_mask;	//bitmask for channel B pin
+	char index_mask;
 	int first_index;	//index that first index rising edge was found at.
-	int position;		//current position encoder is at	
+	int position;		//current position encoder is at
 
 }encoder_dat;
 
 
+typedef struct{
+	int high_time;
+	int period;
+
+	char currentOutput;
+	uintptr_t cnt_port;	//output port
+	char output_mask; //mask to determine what pins to write to
+	char stop;
+
+}pwm_args;
+
+typedef enum {
+	freewheel	= 0b00,
+	forward 	= 0b01,
+	backward	= 0b10,
+	brake		= 0b11
+}motor_mode;
+
+/**
+ * L298N motor controller driver
+ *
+ *
+ */
+typedef struct{
+	uintptr_t cnt_port; //motor control ouput port
+	char input_1_pin;
+	char input_2_pin;
+	motor_mode current_mode;
+
+
+}motor_t;
+
+
+void setPin(uintptr_t port, char pin, char value){
+	char current=in8(port);
+	if(value){
+		out8(port, current | (1<<pin));
+		printf("set %x\n",current| (1<<pin));
+	}else{
+		out8(port,current & ~(1<<pin));
+		printf("clear %x\n",current & ~(1<<pin));
+	}
+
+
+}
+
+void motor_setMode(motor_t* motor, motor_mode mode){
+	motor->current_mode=mode;
+
+	setPin(motor->cnt_port,motor->input_1_pin,(mode & 0b01));
+	setPin(motor->cnt_port,motor->input_2_pin,(mode & 0b10));
+
+	/*char current=in8(motor->cnt_port);
+	current = current & ~((1<<motor->input_1_pin) | (1<<motor->input_2_pin));
+
+	out8(motor->cnt_port, current| (((mode & 0b01)<<motor->input_1_pin) |((mode & 0b10)<<(motor->input_2_pin-1))) );*/
+}
+
+void init_motor(motor_t* motor, uintptr_t port, char input_1_pin, char input_2_pin){
+
+	motor->cnt_port=port;
+	motor->input_1_pin=input_1_pin;
+	motor->input_2_pin=input_2_pin;
+
+	motor_setMode(motor,freewheel);
+}
 
 
 /* ******************************************************************
@@ -137,6 +204,126 @@ int initialize_handles(){
 	return EXIT_SUCCESS;
 }
 
+void* pwmCallback (void* param){
+	pwm_args* args = (pwm_args*)param;
+
+	args->currentOutput= in8(args->cnt_port);
+
+	if(args->stop){
+
+		out8(args->cnt_port,args->currentOutput & ~(args->output_mask)); //set all the controlled pins to low
+		//do nothing, stopping the pwm
+
+	}else{
+
+		//******toggle output******
+		out8(args->cnt_port,args->currentOutput ^(args->output_mask));
+
+		//******handle timer reloading******
+
+		struct sigevent event;
+		timer_t timer; //out value for timer create
+		struct itimerspec value;
+
+		SIGEV_THREAD_INIT(&event, &pwmCallback,param, NULL );
+		timer_create(CLOCK_REALTIME, &event, &timer );
+
+		if(args->currentOutput & args->output_mask){//last output was high, set low
+			//set initial time
+			value.it_value.tv_nsec = args->period - args->high_time;
+			value.it_value.tv_sec = 0;
+
+			//set reload time (0, because we need to reload with a different time depending)
+			value.it_interval.tv_nsec=0;
+			value.it_interval.tv_sec=0;
+		}else{
+			//set initial time
+			value.it_value.tv_nsec = args->high_time;
+			value.it_value.tv_sec = 0;
+
+			//set reload time (0, because we need to reload with a different time depending)
+			value.it_interval.tv_nsec=0;
+			value.it_interval.tv_sec=0;
+		}
+		timer_settime(timer,0,&value,NULL);
+	}
+
+
+}
+
+void startPWM(pwm_args* args,uintptr_t outputPort, char output_mask, int high_time, int period){
+
+	args->high_time=high_time;
+	args->period=period;
+	args->cnt_port=outputPort;
+	args->output_mask=output_mask;
+	args->currentOutput=0;
+	args->stop=0;
+
+	struct sigevent event;
+	timer_t timer; //out value for timer create
+	struct itimerspec value;
+	SIGEV_THREAD_INIT(&event, &pwmCallback,(void*)args, NULL );
+	timer_create(CLOCK_REALTIME, &event, &timer );
+
+	//set initial time
+	value.it_value.tv_nsec = high_time;
+	value.it_value.tv_sec = 0;
+
+	//set reload time (0, because we need to reload with a different time depending)
+	value.it_interval.tv_nsec=0;
+	value.it_interval.tv_sec=0;
+
+	//set up the timer and let it run
+	timer_settime(timer,0,&value,NULL);
+
+
+}
+
+
+void initEncoder(encoder_dat* data, char index_pin, char chan_a_pin, char chan_b_pin, uintptr_t port ){
+	data->a_mask=0x01<<chan_a_pin;
+	data->b_mask=0x01<<chan_b_pin;
+	data->index_mask=0x01<<index_pin;
+
+	data->cnt_port=port;
+	data->debounce=0;
+	data->position=0;
+	data->last_read=0;
+	data->read=0;
+	data->first_index=0;
+
+}
+
+void updateEncoder(encoder_dat* data){
+	data->last_read=data->read;
+	data->read = in8(data->cnt_port); //read encoder port
+
+	if( ((data->a_mask)& data->read) &&! ((data->a_mask)& data->last_read)){ //rising edge for channel A
+
+		if (((data->b_mask) & data->read) && data->debounce){ //if B is high
+			data->position++;
+		}
+		else if (data->debounce){ //b is low
+			data->position--;
+		}
+		data->debounce = 0;
+	}
+
+	if(((data->b_mask)& data->read) &&! ((data->b_mask)& data->last_read)){ //rising edge for channel B
+		data->debounce = 1;
+	}
+
+	if(((data->index_mask)& data->read) &&! ((data->index_mask)& data->last_read)){ //rising edge for index
+		if (data->first_index){
+
+		}else{ //set first index
+			data->first_index=data->position;
+		}
+	}
+}
+
+
 int main(int argc, char *argv[]) {
 
 
@@ -157,11 +344,14 @@ int main(int argc, char *argv[]) {
 
 	out8(cnt_base, 0x20); //reset ATD
 
+
+#define CHAN_A_MASK 0x02
+#define CHAN_B_MASK 0x04
+
 	//setup port B as input (for encoder)
-	//A0 = index A1=Channel A, A2=channelB
-#define chan_a_mask 0x02
-#define chan_b_mask 0x04
+	//B0 = index B1=Channel A, B2=channelB
 	//setup port A as output (for motor controller)
+
 	out8(cnt_ddr, 0b00000010);
 
 	unsigned char input=0;
@@ -171,8 +361,20 @@ int main(int argc, char *argv[]) {
 	int position=0;
 	int count=0;
 
+	encoder_dat encoderA;
+	initEncoder(&encoderA, 0, 1, 2, cnt_port_b);
+
+	pwm_args pwmA;
+	startPWM(&pwmA,cnt_port_a,0x01,25000,50*1000);
+
+
+	motor_t motorA;
+	init_motor(&motorA,cnt_port_a,1,2);
+	motor_setMode(&motorA,forward);
+
 	for(;;){
-		last_input=input;
+
+		/*last_input=input;
 		input = in8(cnt_port_b); //read in port B
 
 		if( ((chan_a_mask)& input) &&! ((chan_a_mask)& last_input)){ //rising edge for channel A
@@ -189,12 +391,15 @@ int main(int argc, char *argv[]) {
 		if( ((chan_b_mask)& input) &&! ((chan_b_mask)& last_input)){ //rising edge for channel B
 			debounce = 1;
 
-		}
+		}*/
 
+
+
+		updateEncoder(&encoderA);
 
 		if(++count > 1000){
 			count =0;
-			printf("%d\n",position);
+			//printf("%d\n",encoderA.position);
 		}
 
 
@@ -202,26 +407,6 @@ int main(int argc, char *argv[]) {
 	return EXIT_SUCCESS;
 }
 
-void updateEncoder(encoder_dat* data){
-	data->last_read=data->read;
-	data->read = in8(data->cnt_port); //read encoder port
-
-	if( ((channel_a_mask)& data->read) &&! ((channel_a_mask)& last_data->read)){ //rising edge for channel A
-
-		if (((channel_b_mask) & data->read) && data->debounce){ //if B is high
-			data->position++;
-		}
-		else if (data->debounce){ //b is low
-			data->position--;
-		}
-		data->debounce = 0;
-	}
-
-	if(((channel_b_mask)& data->read) &&! ((channel_b_mask)& last_data->read)){ //rising edge for channelnel B
-		data->debounce = 1;
-
-	}
-}
 
 
 void * Input (void* arg){
