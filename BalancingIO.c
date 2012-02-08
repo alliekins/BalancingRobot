@@ -1,5 +1,8 @@
 //#include <cstdlib>
 //#include <iostream.h>
+
+#include <time.h>
+
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -73,13 +76,15 @@ typedef struct{
 	char output_mask; //mask to determine what pins to write to
 	char stop;
 
+	pthread_t thread;
+
 }pwm_args;
 
 typedef enum {
 	freewheel	= 0b00,
-	forward 	= 0b01,
-	backward	= 0b10,
-	brake		= 0b11
+			forward 	= 0b01,
+			backward	= 0b10,
+			brake		= 0b11
 }motor_mode;
 
 /**
@@ -204,52 +209,40 @@ int initialize_handles(){
 	return EXIT_SUCCESS;
 }
 
-void* pwmCallback (void* param){
+void* pwm_thread(void* param){
 	pwm_args* args = (pwm_args*)param;
 
-	args->currentOutput= in8(args->cnt_port);
+	int count=0;
 
-	if(args->stop){
+	out8(args->cnt_port,args->currentOutput | (args->output_mask)); //set high
 
-		out8(args->cnt_port,args->currentOutput & ~(args->output_mask)); //set all the controlled pins to low
-		//do nothing, stopping the pwm
+	struct itimerspec value;
 
-	}else{
 
-		//******toggle output******
-		out8(args->cnt_port,args->currentOutput ^(args->output_mask));
+	while(!args->stop){
+		args->currentOutput= in8(args->cnt_port);
 
-		//******handle timer reloading******
-
-		struct sigevent event;
-		timer_t timer; //out value for timer create
-		struct itimerspec value;
-
-		SIGEV_THREAD_INIT(&event, &pwmCallback,param, NULL );
-		timer_create(CLOCK_REALTIME, &event, &timer );
-
-		if(args->currentOutput & args->output_mask){//last output was high, set low
-			//set initial time
-			value.it_value.tv_nsec = args->period - args->high_time;
-			value.it_value.tv_sec = 0;
-
-			//set reload time (0, because we need to reload with a different time depending)
-			value.it_interval.tv_nsec=0;
-			value.it_interval.tv_sec=0;
-		}else{
-			//set initial time
-			value.it_value.tv_nsec = args->high_time;
-			value.it_value.tv_sec = 0;
-
-			//set reload time (0, because we need to reload with a different time depending)
-			value.it_interval.tv_nsec=0;
-			value.it_interval.tv_sec=0;
+		if (count== args->high_time){
+			out8(args->cnt_port,args->currentOutput & ~(args->output_mask));
 		}
-		timer_settime(timer,0,&value,NULL);
+		else if (count >  args->period) //set high
+		{
+			out8(args->cnt_port,args->currentOutput | (args->output_mask));
+			count=0;
+		}
+		count++;
+
+		value.it_value.tv_nsec = args->high_time*1000;
+		value.it_value.tv_sec = 0;
+		nanosleep(&value,NULL); //more friendly
+		//nanospin(&value);//much faster.. up it_value
+
 	}
 
-
+	//set the output to 0 before leaving
+	out8(args->cnt_port,args->currentOutput & ~(args->output_mask)); //set all the controlled pins to low
 }
+
 
 void startPWM(pwm_args* args,uintptr_t outputPort, char output_mask, int high_time, int period){
 
@@ -260,23 +253,7 @@ void startPWM(pwm_args* args,uintptr_t outputPort, char output_mask, int high_ti
 	args->currentOutput=0;
 	args->stop=0;
 
-	struct sigevent event;
-	timer_t timer; //out value for timer create
-	struct itimerspec value;
-	SIGEV_THREAD_INIT(&event, &pwmCallback,(void*)args, NULL );
-	timer_create(CLOCK_REALTIME, &event, &timer );
-
-	//set initial time
-	value.it_value.tv_nsec = high_time;
-	value.it_value.tv_sec = 0;
-
-	//set reload time (0, because we need to reload with a different time depending)
-	value.it_interval.tv_nsec=0;
-	value.it_interval.tv_sec=0;
-
-	//set up the timer and let it run
-	timer_settime(timer,0,&value,NULL);
-
+	pthread_create(&args->thread,NULL, &pwm_thread,(void*)args);
 
 }
 
@@ -365,7 +342,7 @@ int main(int argc, char *argv[]) {
 	initEncoder(&encoderA, 0, 1, 2, cnt_port_b);
 
 	pwm_args pwmA;
-	startPWM(&pwmA,cnt_port_a,0x01,25000,50*1000);
+	startPWM(&pwmA,cnt_port_a,0x01,1,10);
 
 
 	motor_t motorA;
@@ -392,14 +369,35 @@ int main(int argc, char *argv[]) {
 			debounce = 1;
 
 		}*/
+		char a=getchar();
 
-
+		if(a =='w'){
+			pwmA.high_time++;
+		}
+		if(a =='s'){
+			pwmA.high_time--;
+		}
+		if (a=='q'){
+			pwmA.stop=1;
+		}
+		if (a=='a'){
+			motor_setMode(&motorA,backward);
+		}
+		if (a=='d'){
+			motor_setMode(&motorA,forward);
+		}
+		if (a=='e'){
+			motor_setMode(&motorA,freewheel);
+		}
+		if (a=='b'){
+			motor_setMode(&motorA,brake);
+		}
 
 		updateEncoder(&encoderA);
 
 		if(++count > 1000){
 			count =0;
-			//printf("%d\n",encoderA.position);
+			printf("%d\n",encoderA.position);
 		}
 
 
