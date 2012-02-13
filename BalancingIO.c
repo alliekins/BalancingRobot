@@ -15,13 +15,6 @@
 #include <sys/neutrino.h>
 #include <semaphore.h>
 
-#define MY_PULSE_CODE   _PULSE_CODE_MINAVAIL
-
-typedef union {
-	struct _pulse   pulse;
-
-} my_message_t;
-
 void * Control(void* arg);
 //void * Output(void* arg);
 void Output();
@@ -42,6 +35,8 @@ const uint64_t PORT_B = (CNT_BASE+9);
 const uint64_t INPUT_RNG = (CNT_BASE+3);
 const uint64_t CNT1_CLK_100KHZ = 0x40;
 //register handles
+
+//TODO: need to protect these ports with mutexes.
 uintptr_t cnt_base;
 uintptr_t cnt_base_plus;
 uintptr_t cnt_input_rng;
@@ -51,6 +46,21 @@ uintptr_t cnt_output_chan_low;
 uintptr_t cnt_ddr;
 uintptr_t cnt_port_a;
 uintptr_t cnt_port_b;
+
+
+typedef struct{
+	double x;
+	double y;
+	double z;
+
+	uintptr_t adc_port;
+	char x_pin;
+	char y_pin;
+	char z_pin;
+
+	pthread_t input_thread; //thread running that fills this structure
+
+}accel_dat;
 
 
 typedef struct{
@@ -76,15 +86,15 @@ typedef struct{
 	char output_mask; //mask to determine what pins to write to
 	char stop;
 
-	pthread_t thread;
+	pthread_t output_thread;
 
 }pwm_args;
 
 typedef enum {
 	freewheel	= 0b00,
-			forward 	= 0b01,
-			backward	= 0b10,
-			brake		= 0b11
+	forward 	= 0b01,
+	backward	= 0b10,
+	brake		= 0b11
 }motor_mode;
 
 /**
@@ -122,9 +132,9 @@ void motor_setMode(motor_t* motor, motor_mode mode){
 	setPin(motor->cnt_port,motor->input_2_pin,(mode & 0b10));
 
 	/*char current=in8(motor->cnt_port);
-	current = current & ~((1<<motor->input_1_pin) | (1<<motor->input_2_pin));
+	  current = current & ~((1<<motor->input_1_pin) | (1<<motor->input_2_pin));
 
-	out8(motor->cnt_port, current| (((mode & 0b01)<<motor->input_1_pin) |((mode & 0b10)<<(motor->input_2_pin-1))) );*/
+	  out8(motor->cnt_port, current| (((mode & 0b01)<<motor->input_1_pin) |((mode & 0b10)<<(motor->input_2_pin-1))) );*/
 }
 
 void init_motor(motor_t* motor, uintptr_t port, char input_1_pin, char input_2_pin){
@@ -253,7 +263,7 @@ void startPWM(pwm_args* args,uintptr_t outputPort, char output_mask, int high_ti
 	args->currentOutput=0;
 	args->stop=0;
 
-	pthread_create(&args->thread,NULL, &pwm_thread,(void*)args);
+	pthread_create(&args->output_thread,NULL, &pwm_thread,(void*)args);
 
 }
 
@@ -328,7 +338,6 @@ int main(int argc, char *argv[]) {
 	//setup port B as input (for encoder)
 	//B0 = index B1=Channel A, B2=channelB
 	//setup port A as output (for motor controller)
-
 	out8(cnt_ddr, 0b00000010);
 
 	unsigned char input=0;
@@ -352,23 +361,23 @@ int main(int argc, char *argv[]) {
 	for(;;){
 
 		/*last_input=input;
-		input = in8(cnt_port_b); //read in port B
+		  input = in8(cnt_port_b); //read in port B
 
-		if( ((chan_a_mask)& input) &&! ((chan_a_mask)& last_input)){ //rising edge for channel A
+		  if( ((chan_a_mask)& input) &&! ((chan_a_mask)& last_input)){ //rising edge for channel A
 
-			if (((chan_b_mask) & input) && debounce){ //if B is high
-				position++;
-			}
-			else if (debounce){ //b is low
-				position--;
-			}
-			debounce = 0;
-		}
+		  if (((chan_b_mask) & input) && debounce){ //if B is high
+		  position++;
+		  }
+		  else if (debounce){ //b is low
+		  position--;
+		  }
+		  debounce = 0;
+		  }
 
-		if( ((chan_b_mask)& input) &&! ((chan_b_mask)& last_input)){ //rising edge for channel B
-			debounce = 1;
+		  if( ((chan_b_mask)& input) &&! ((chan_b_mask)& last_input)){ //rising edge for channel B
+		  debounce = 1;
 
-		}*/
+		  }*/
 		char a=getchar();
 
 		if(a =='w'){
