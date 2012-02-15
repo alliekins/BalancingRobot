@@ -49,6 +49,21 @@ uintptr_t cnt_port_b;
 
 
 typedef struct{
+
+	pthread_t pid_thread;
+	double* input;
+	double* setpoint;
+	//TODO: input mutex
+	double e[3]; //error history
+	double u[3]; //output history
+	double pk,ik,dk; //PID constants
+	
+	//TODO: output mutex
+	double output;
+
+}pid_data;
+
+typedef struct{
 	double x;
 	double y;
 	double z;
