@@ -157,9 +157,18 @@ void* accelCallback(void * param){
 	//reset the fifo
 	out8(data->base+CMD_REGISTER, RSTFIFO);
 
+
+	printf("theta: %lf\r\n",getAngle(data));
+
+	return NULL;
 }
 
 double getAngle(accel_dat* data){
+	
+	double x = data->values[data->x_pin];	
+	double z = data->values[data->z_pin];
+
+	return (atan(x/z));
 	
 }
 
