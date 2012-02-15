@@ -25,12 +25,14 @@ void RunControlAlgorithm();
 
 const size_t PORT_LENGTH = 1;
 #define CNT_BASE  0x280
+#define ADC_GAIN_OFFSET 3
 const uint64_t INPUT_CHAN = (CNT_BASE+2);
 const uint64_t OUTPUT_CHAN_LOW = (CNT_BASE+6);
 const uint64_t OUTPUT_CHAN_HIGH = (CNT_BASE+7);
 const uint64_t DDR = (CNT_BASE+11);
 const uint64_t PORT_A = (CNT_BASE+8);
 const uint64_t PORT_B = (CNT_BASE+9);
+
 
 const uint64_t INPUT_RNG = (CNT_BASE+3);
 const uint64_t CNT1_CLK_100KHZ = 0x40;
@@ -64,6 +66,10 @@ typedef struct{
 }pid_data;
 
 typedef struct{
+
+	short values[16];
+
+	uintptr_t base;
 	double x;
 	double y;
 	double z;
@@ -123,8 +129,98 @@ typedef struct{
 	char input_2_pin;
 	motor_mode current_mode;
 
-
 }motor_t;
+
+
+#define RSTFIFO 	(0x8)
+
+#define ATD_STAUS 	3
+#define STS_BM		(0x80)
+
+#define ATD_FIFO_DEPTH	6
+
+#define ATD_MSB		1
+#define ATD_LSB		0
+
+void* accelCallback(void * param){
+	accel_dat* data= (accel_dat*) param;
+	while ( in8(data->base+ATD_STATUS) & STS_BM){ //wait for the STS bit to clear
+
+	}
+
+	int values= in8(data->base+ATD_FIFO_DEPTH);//read in the number of values in the fifo
+
+	for (int i=0;i<values && i < 15;i++){
+		data->values[i]=in8(data->base+ATD_LSB) + in8(data->base+ATD_MSB)<<8;
+	}
+
+	//reset the fifo
+	out8(data->base+CMD_REGISTER, RSTFIFO);
+
+}
+
+double getAngle(accel_dat* data){
+	
+}
+
+
+void init_accelerometer(accel_dat* data, uintptr_t base, char x_pin, char y_pin, char z_pin, int nseconds){
+
+	char temp;
+
+
+	data->base=base;
+
+	data->x_pin=x_pin;
+	data->y_pin=y_pin;
+	data->z_pin=z_pin;
+
+
+
+	#define CMD_REGISTER		0
+	#define ADC_TRIGGER_READ	(0x80)
+
+	#define ADC_RANGE_OFFSET 	2
+	#define ADC_HIGH_15		(0xF<<4)
+	#define ADC			(0x0)
+
+	#define ADC_SCANEN 		(0b100)
+	#define ADC_GAIN_0 		(0b00)
+
+
+	#define INTERUPT_CONTROL_REGISTER	4
+	#define ADC_CLK_EXTERNAL 		(0b10000)
+	#define ADC_INTERRUPT_ENABLE		(0b1)
+
+	//enable scan and set gain to 0
+	out8(base+ADC_GAIN_OFFSET, (ADC_SCANEN)|(ADC_GAIN_0) );	
+	
+	//set scan range from 0 to 15
+	out8(base+ADC_RANGE_OFFSET, (ADC_HIGH_15)|(ADC_LOW_0));
+
+	//setup interrupt control register
+	temp=in8(base+INTERRUPT_CONTROL_REGISTER);	
+	out8(base+INTERRUPT_CONTROL_REGISTER, temp & ~(ADC_CLK_EXTERNAL | ADC_INTERRUPT_ENABLE));
+	
+
+	struct sigevent event;
+	timer_t timer;
+	struct itimerspec value;
+
+	SIGEV_THREAD_INIT(&event, &accelCallback, (void*) data, null);
+	timer_create(CLOCK_REALTIME,&event, &timer);
+
+	value.it_value.tv_sec=0;
+	value.it_value.tv_nsec=nseconds;
+	value.it_interval.tv_sec=0;
+	value.it_interval.tv_sec=nseconds;
+
+	timer_settime(timer, 0, &value, NULL);
+
+	//start conversion
+	out8(base+CMD_REGISTER,ADC_TRIGGER_READ);
+}
+
 
 
 void setPin(uintptr_t port, char pin, char value){
