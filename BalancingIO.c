@@ -15,6 +15,9 @@
 #include <sys/neutrino.h>
 #include <semaphore.h>
 
+
+#include <math.h>
+
 void * Control(void* arg);
 //void * Output(void* arg);
 void Output();
@@ -24,8 +27,38 @@ int initialize_handles();
 void RunControlAlgorithm();
 
 const size_t PORT_LENGTH = 1;
+
 #define CNT_BASE  0x280
 #define ADC_GAIN_OFFSET 3
+#define RSTFIFO 	(0x8)
+
+#define ATD_STATUS 	3
+#define STS_BM		(0x80)
+
+#define ATD_FIFO_DEPTH	6
+
+#define ATD_MSB		1
+#define ATD_LSB		0
+
+#define CMD_REGISTER		0
+#define RST_DAC				0x20
+#define RST_BRD				0x40
+#define ADC_TRIGGER_READ	(0x80)
+
+#define ADC_RANGE_OFFSET 	2
+#define ADC_HIGH_15			(0xF<<4)
+#define ADC_LOW_0			(0x0)
+
+#define ADC_SCANEN 		(0b100)
+#define ADC_GAIN_0 		(0b00)
+
+
+#define INTERRUPT_CONTROL_REGISTER	4
+#define ADC_CLK_EXTERNAL 		(0b10000)
+#define ADC_INTERRUPT_ENABLE		(0b1)
+
+
+
 const uint64_t INPUT_CHAN = (CNT_BASE+2);
 const uint64_t OUTPUT_CHAN_LOW = (CNT_BASE+6);
 const uint64_t OUTPUT_CHAN_HIGH = (CNT_BASE+7);
@@ -59,7 +92,7 @@ typedef struct{
 	double e[3]; //error history
 	double u[3]; //output history
 	double pk,ik,dk; //PID constants
-	
+
 	//TODO: output mutex
 	double output;
 
@@ -131,52 +164,59 @@ typedef struct{
 
 }motor_t;
 
+double getAngle(accel_dat* data){
 
-#define RSTFIFO 	(0x8)
+#define PI 3.14159265
 
-#define ATD_STAUS 	3
-#define STS_BM		(0x80)
+	double x = (double)data->values[(int)data->x_pin]-5496;
+	double y = (double)data->values[(int)data->y_pin]-5496;
+	double z = (double)data->values[(int)data->z_pin]-5496;
 
-#define ATD_FIFO_DEPTH	6
 
-#define ATD_MSB		1
-#define ATD_LSB		0
+	double len = sqrt((x * x) + (z * z)+ (y*y) );
+
+	y=y/len;
+	x=x/len;
+	z=z/len;
+
+	//to fix this error in eclipse, make sure to include "-lm" in the linker options
+	return (PI/2-atan(y/z))*180/PI;
+
+}
 
 void* accelCallback(void * param){
 	accel_dat* data= (accel_dat*) param;
-	while ( in8(data->base+ATD_STATUS) & STS_BM){ //wait for the STS bit to clear
 
+
+
+	while ( in8(data->base+ATD_STATUS) & STS_BM){ //wait for the STS bit to clear
 	}
 
 	int values= in8(data->base+ATD_FIFO_DEPTH);//read in the number of values in the fifo
 
-	for (int i=0;i<values && i < 15;i++){
-		data->values[i]=in8(data->base+ATD_LSB) + in8(data->base+ATD_MSB)<<8;
+	int i;
+	for (i=0;i<values && i < 16;i++){
+		data->values[i]=in8(data->base+ATD_LSB) + (in8(data->base+ATD_MSB)<<8);
 	}
 
 	//reset the fifo
 	out8(data->base+CMD_REGISTER, RSTFIFO);
 
+	//start conversion for next time
+	out8(data->base+CMD_REGISTER,ADC_TRIGGER_READ);
+
+	printf("X:[%d]\r\n",data->values[(int)data->x_pin]-5496);
+	printf("Z:[%d]\r\n",data->values[(int)data->z_pin]-5496);
 
 	printf("theta: %lf\r\n",getAngle(data));
 
-	return NULL;
-}
-
-double getAngle(accel_dat* data){
-	
-	double x = data->values[data->x_pin];	
-	double z = data->values[data->z_pin];
-
-	return (atan(x/z));
-	
+	return 0;
 }
 
 
 void init_accelerometer(accel_dat* data, uintptr_t base, char x_pin, char y_pin, char z_pin, int nseconds){
 
 	char temp;
-
 
 	data->base=base;
 
@@ -185,44 +225,29 @@ void init_accelerometer(accel_dat* data, uintptr_t base, char x_pin, char y_pin,
 	data->z_pin=z_pin;
 
 
-
-	#define CMD_REGISTER		0
-	#define ADC_TRIGGER_READ	(0x80)
-
-	#define ADC_RANGE_OFFSET 	2
-	#define ADC_HIGH_15		(0xF<<4)
-	#define ADC			(0x0)
-
-	#define ADC_SCANEN 		(0b100)
-	#define ADC_GAIN_0 		(0b00)
-
-
-	#define INTERUPT_CONTROL_REGISTER	4
-	#define ADC_CLK_EXTERNAL 		(0b10000)
-	#define ADC_INTERRUPT_ENABLE		(0b1)
-
 	//enable scan and set gain to 0
-	out8(base+ADC_GAIN_OFFSET, (ADC_SCANEN)|(ADC_GAIN_0) );	
-	
+	out8(base+ADC_GAIN_OFFSET, (ADC_SCANEN)|(ADC_GAIN_0) );
+
 	//set scan range from 0 to 15
 	out8(base+ADC_RANGE_OFFSET, (ADC_HIGH_15)|(ADC_LOW_0));
 
 	//setup interrupt control register
-	temp=in8(base+INTERRUPT_CONTROL_REGISTER);	
+	temp=in8(base+INTERRUPT_CONTROL_REGISTER);
 	out8(base+INTERRUPT_CONTROL_REGISTER, temp & ~(ADC_CLK_EXTERNAL | ADC_INTERRUPT_ENABLE));
-	
+
 
 	struct sigevent event;
 	timer_t timer;
 	struct itimerspec value;
 
-	SIGEV_THREAD_INIT(&event, &accelCallback, (void*) data, null);
+	SIGEV_THREAD_INIT(&event, &accelCallback, (void*) data, NULL);
 	timer_create(CLOCK_REALTIME,&event, &timer);
 
 	value.it_value.tv_sec=0;
 	value.it_value.tv_nsec=nseconds;
+
 	value.it_interval.tv_sec=0;
-	value.it_interval.tv_sec=nseconds;
+	value.it_interval.tv_nsec=nseconds;
 
 	timer_settime(timer, 0, &value, NULL);
 
@@ -449,7 +474,10 @@ int main(int argc, char *argv[]) {
 	initialize_handles();
 
 
-	out8(cnt_base, 0x20); //reset ATD
+	//reset peripheral board
+	out8(cnt_base+CMD_REGISTER,RST_BRD);
+
+	out8(cnt_base, RST_DAC); //reset DAC
 
 
 #define CHAN_A_MASK 0x02
@@ -477,6 +505,9 @@ int main(int argc, char *argv[]) {
 	motor_t motorA;
 	init_motor(&motorA,cnt_port_a,1,2);
 	motor_setMode(&motorA,forward);
+
+	accel_dat accelerometer;
+	init_accelerometer(&accelerometer,cnt_base,0,1,2,5000000);
 
 	for(;;){
 
