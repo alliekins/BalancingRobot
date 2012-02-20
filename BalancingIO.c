@@ -163,20 +163,21 @@ typedef struct{
 
 
 
-void pwm_setDuty(pwm_args* args, float duty);
+void pwm_setDuty(pwm_args* args, double duty);
 double getAngle(accel_dat* data);
 void* accelCallback(void * param);
 void init_accelerometer(accel_dat* data, uintptr_t base, char x_pin, char y_pin, char z_pin, int nseconds);
 void setPin(uintptr_t port, char pin, char value);
-void motor_setSpeed(motor_t* motor, float speed);
+void motor_setSpeed(motor_t* motor, double speed);
 void motor_setMode(motor_t* motor, motor_mode mode);
 void init_motor(motor_t* motor, uintptr_t port, char input_1_pin, char input_2_pin, char pwmPin);
 int initialize_handles();
 void* pwm_thread(void* param);
-void pwm_setDuty(pwm_args* args, float duty);
+void pwm_setDuty(pwm_args* args, double duty);
 void startPWM(pwm_args* args,uintptr_t outputPort, char output_mask, int high_time, int period);
 void initEncoder(encoder_dat* data, char index_pin, char chan_a_pin, char chan_b_pin, uintptr_t port );
 void updateEncoder(encoder_dat* data);
+void* pid_thread(void* param);
 
 double getAngle(accel_dat* data){
 
@@ -290,8 +291,8 @@ void setPin(uintptr_t port, char pin, char value){
 }
 
 
-//Accepts a signed float from -1 to 1 that determines speed of the motor
-void motor_setSpeed(motor_t* motor, float speed){
+//Accepts a signed double from -1 to 1 that determines speed of the motor
+void motor_setSpeed(motor_t* motor, double speed){
 
 	if(speed <0.0){
 		motor_setMode(motor, backward);
@@ -327,22 +328,23 @@ void init_motor(motor_t* motor, uintptr_t port, char input_1_pin, char input_2_p
 
 }
 
-void init_pid(pid_data* pid, double* input, double* output, double pk, double ik, double dk) {
-	pid->e = {0, 0, 0};
-	pid->u = {0, 0, 0};
+void init_pid(pid_data* pid,double* setpoint, double* input, double pk, double ik, double dk) {
+
+	pid->setpoint=setpoint;
 	pid->input = input;
-	pid->output = output;
+	pid->output=0;
 	pid->pk = pk;
 	pid-> ik = ik;
 	pid-> dk = dk;
-	sem_init(*input_sem,0,0);
-	sem_init(*output_sem,0,0);
+	sem_init(&pid->input_sem,0,0);
+	sem_init(&pid->output_sem,0,0);
 }
 
 void start_pid(pid_data* pid) {
-	pthread_create(&pid->pid_thread, void, pid_thread);
+	pthread_create(&pid->pid_thread, NULL, &pid_thread, (void*)pid);
 }
 
+/*
 void update_input(pid_data* pid, int channel) {
 	//set reading from specified channel
 	out8(cnt_input_chan, channel);
@@ -360,26 +362,13 @@ void update_input(pid_data* pid, int channel) {
 	read_val = read_val /32768 * 10;
 	//save to input
 	pid->input = read_val;
-}
-/*typedef struct{
+}*/
 
-	pthread_t pid_thread;
-	double* input;
-	double* setpoint;
-	//TODO: input mutex
-	double e[3]; //error history
-	double u[3]; //output history
-	double pk,ik,dk; //PID constants
-
-	//TODO: output mutex
-	double output;
-
-}pid_data;*/
 void* pid_thread(void* param){	
 	pid_data* pid = (pid_data*)param;
 
 	while(1){ //run forever. TODO: figure out exit case?
-		sem_wait(pid->input_sem); //wait for input to change
+		sem_wait(&pid->input_sem); //wait for input to change
 
 		pid->u[2] = pid->u[1];	//propogate hitory forward
 		pid->u[1] = pid->u[0];
@@ -387,16 +376,23 @@ void* pid_thread(void* param){
 
 		pid->e[2] = pid->e[1];
 		pid->e[1] = pid->e[0];
-		pid->e[0] = pid->setpoint - pid->input;
+		pid->e[0] = *pid->setpoint - *pid->input;
 
 		//update output as per pid equation
 		//u(k+1) = u(k) + e(k+1)(pk+ik+dk) - e(k)(pk+2dk) + e(k-1)dk
-		pid->output = pid->u[2] + pid->input*(pk+ik+dk) - pid->e[0]*(pk+2*dk) + e[1]*dk;
+		//pid->output = pid->u[2] + pid->u[0]*(pid->pk+pid->ik+pid->dk) - pid->e[0]*(pid->pk+2*pid->dk) + pid->e[1]*pid->dk;
 
-		sem_post(pid->output_sem);//notify system that output has changed
+		pid->output=pid->u[1]+
+				pid->pk*(pid->e[0]-pid->e[1])
+				+ pid->ik*pid->e[0]
+				+ pid->dk*(pid->e[0]-(pid->e[1]/2)+pid->e[2]);
+
+		sem_post(&pid->output_sem);//notify system that output has changed
 	}
 
 }
+
+
 
 /* ******************************************************************
  * Initiaize register handles
@@ -515,7 +511,7 @@ void* pwm_thread(void* param){
 	return 0;
 }
 
-void pwm_setDuty(pwm_args* args, float duty){
+void pwm_setDuty(pwm_args* args, double duty){
 
 	args->high_time=(int) (duty * args->period);
 
