@@ -374,20 +374,25 @@ void* pwm_thread(void* param){
 	while(!args->stop){
 		args->currentOutput= in8(args->cnt_port);
 
-		if (count== args->high_time){
+		if (count== args->high_time){ //set output low and sleep for the rest of the time
 			out8(args->cnt_port,args->currentOutput & ~(args->output_mask));
+
+			value.it_value.tv_nsec = (args->period-args->high_time)*100;
+			value.it_value.tv_sec = 0;
 		}
-		else if (count >  args->period) //set high
+		else if (count >  args->period) //set high and sleep high time
 		{
 			out8(args->cnt_port,args->currentOutput | (args->output_mask));
 			count=0;
+			value.it_value.tv_nsec = args->high_time*100;
+			value.it_value.tv_sec = 0;
+
 		}
 		count++;
 
-		value.it_value.tv_nsec = args->high_time*1000;
-		value.it_value.tv_sec = 0;
-		nanosleep(&value,NULL); //more friendly
-		//nanospin(&value);//much faster.. up it_value
+
+		//nanosleep(&value,NULL); //more friendly
+		nanospin(&value);//much faster.. up it_value
 
 	}
 
@@ -404,8 +409,8 @@ void startPWM(pwm_args* args,uintptr_t outputPort, char output_mask, int high_ti
 	args->output_mask=output_mask;
 	args->currentOutput=0;
 	args->stop=0;
-	
-	pthread_create(&args->thread,NULL, &pwm_thread,(void*)args); //create a new thread for pwm
+
+	pthread_create(&args->output_thread,NULL, &pwm_thread,(void*)args); //create a new thread for pwm
 
 
 }
@@ -497,7 +502,7 @@ int main(int argc, char *argv[]) {
 	initEncoder(&encoderA, 0, 1, 2, cnt_port_b);
 
 	pwm_args pwmA;
-	startPWM(&pwmA,cnt_port_a,0x01,1,10);
+	startPWM(&pwmA,cnt_port_a,0x01,128,255);
 
 
 	motor_t motorA;
