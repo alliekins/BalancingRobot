@@ -84,14 +84,13 @@ uintptr_t cnt_port_b;
 
 typedef struct{
 	pthread_t pid_thread;
-	double* input;
-	double* setpoint;
-	//TODO: input mutex
-	double e[3]; //error history
-	double u[3]; //output history
-	double pk,ik,dk; //PID constants
-
-	//TODO: output mutex
+	double* input;		//pointer to input value
+	double* setpoint;	//pointer to setpoint value
+	sem_t	input_sem;	//input semaphore. Unblocked when input changes
+	double e[3]; 		//error history
+	double u[3]; 		//output history
+	double pk,ik,dk; 	//PID constants
+	sem_t 	output_sem;	//output semaphore. Unblocked when output changes
 	double output;
 
 }pid_data;
@@ -328,6 +327,76 @@ void init_motor(motor_t* motor, uintptr_t port, char input_1_pin, char input_2_p
 
 }
 
+void init_pid(pid_data* pid, double* input, double* output, double pk, double ik, double dk) {
+	pid->e = {0, 0, 0};
+	pid->u = {0, 0, 0};
+	pid->input = input;
+	pid->output = output;
+	pid->pk = pk;
+	pid-> ik = ik;
+	pid-> dk = dk;
+	sem_init(*input_sem,0,0);
+	sem_init(*output_sem,0,0);
+}
+
+void start_pid(pid_data* pid) {
+	pthread_create(&pid->pid_thread, void, pid_thread);
+}
+
+void update_input(pid_data* pid, int channel) {
+	//set reading from specified channel
+	out8(cnt_input_chan, channel);
+	//write to STRTAD (base + 0) OR 1000 0000 (to start A/D conversion).
+	out8(cnt_base, 0x80);
+	//wait until base + 3 < 128
+	while (in8(cnt_input_rng) & 0x80); //wait for conversion to finish before proceeding
+	//then read A/D at base + 0(lsb) and Base + 1 (msb)
+	int LSB = in8(cnt_base);
+	int8_t MSB = in8(cnt_base_plus);
+
+	//convert and add together lsb + msb*256
+	double read_val = MSB*256 + LSB;
+	//convert into analog number (using scale)
+	read_val = read_val /32768 * 10;
+	//save to input
+	pid->input = read_val;
+}
+/*typedef struct{
+
+	pthread_t pid_thread;
+	double* input;
+	double* setpoint;
+	//TODO: input mutex
+	double e[3]; //error history
+	double u[3]; //output history
+	double pk,ik,dk; //PID constants
+
+	//TODO: output mutex
+	double output;
+
+}pid_data;*/
+void* pid_thread(void* param){	
+	pid_data* pid = (pid_data*)param;
+
+	while(1){ //run forever. TODO: figure out exit case?
+		sem_wait(pid->input_sem); //wait for input to change
+
+		pid->u[2] = pid->u[1];	//propogate hitory forward
+		pid->u[1] = pid->u[0];
+		pid->u[0] = pid->output;
+
+		pid->e[2] = pid->e[1];
+		pid->e[1] = pid->e[0];
+		pid->e[0] = pid->setpoint - pid->input;
+
+		//update output as per pid equation
+		//u(k+1) = u(k) + e(k+1)(pk+ik+dk) - e(k)(pk+2dk) + e(k-1)dk
+		pid->output = pid->u[2] + pid->input*(pk+ik+dk) - pid->e[0]*(pk+2*dk) + e[1]*dk;
+
+		sem_post(pid->output_sem);//notify system that output has changed
+	}
+
+}
 
 /* ******************************************************************
  * Initiaize register handles
@@ -384,13 +453,13 @@ int initialize_handles(){
 
 	sem_wait(& port_mutex);
 	//Set reading from channel 0
-	out8(cnt_input_chan, 0x00);
+	//out8(cnt_input_chan, 0x00);
 
 	//Set writing to channel ?
-	int reg = in8(cnt_output_chan_high);
+	//int reg = in8(cnt_output_chan_high);
 	//bitwise and 00111111 with what's currently in register
 	//(to set bit 6 and 7 to select channel 0).
-	out8(cnt_output_chan_high, (reg & 0x3f));
+	//out8(cnt_output_chan_high, (reg & 0x3f));
 	//wait for it to settle????
 
 	//Set input range to +/- 10V
