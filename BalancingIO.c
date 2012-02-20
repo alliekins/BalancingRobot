@@ -70,6 +70,7 @@ const uint64_t CNT1_CLK_100KHZ = 0x40;
 //register handles
 
 //TODO: need to protect these ports with mutexes.
+sem_t port_mutex;
 uintptr_t cnt_base;
 uintptr_t cnt_base_plus;
 uintptr_t cnt_input_rng;
@@ -143,9 +144,9 @@ typedef struct{
 
 typedef enum {
 	freewheel	= 0b00,
-	forward 	= 0b01,
-	backward	= 0b10,
-	brake		= 0b11
+			forward 	= 0b01,
+			backward	= 0b10,
+			brake		= 0b11
 }motor_mode;
 
 /**
@@ -158,8 +159,25 @@ typedef struct{
 	char input_1_pin;
 	char input_2_pin;
 	motor_mode current_mode;
-
+	pwm_args pwm;
 }motor_t;
+
+
+
+void pwm_setDuty(pwm_args* args, float duty);
+double getAngle(accel_dat* data);
+void* accelCallback(void * param);
+void init_accelerometer(accel_dat* data, uintptr_t base, char x_pin, char y_pin, char z_pin, int nseconds);
+void setPin(uintptr_t port, char pin, char value);
+void motor_setSpeed(motor_t* motor, float speed);
+void motor_setMode(motor_t* motor, motor_mode mode);
+void init_motor(motor_t* motor, uintptr_t port, char input_1_pin, char input_2_pin, char pwmPin);
+int initialize_handles();
+void* pwm_thread(void* param);
+void pwm_setDuty(pwm_args* args, float duty);
+void startPWM(pwm_args* args,uintptr_t outputPort, char output_mask, int high_time, int period);
+void initEncoder(encoder_dat* data, char index_pin, char chan_a_pin, char chan_b_pin, uintptr_t port );
+void updateEncoder(encoder_dat* data);
 
 double getAngle(accel_dat* data){
 
@@ -185,7 +203,7 @@ void* accelCallback(void * param){
 	accel_dat* data= (accel_dat*) param;
 
 
-
+	sem_wait(&port_mutex);
 	while ( in8(data->base+ATD_STATUS) & STS_BM){ //wait for the STS bit to clear
 	}
 
@@ -201,6 +219,7 @@ void* accelCallback(void * param){
 
 	//start conversion for next time
 	out8(data->base+CMD_REGISTER,ADC_TRIGGER_READ);
+	sem_post(&port_mutex);
 
 	printf("X:[%d]\r\n",data->values[(int)data->x_pin]-5496);
 	printf("Z:[%d]\r\n",data->values[(int)data->z_pin]-5496);
@@ -221,7 +240,7 @@ void init_accelerometer(accel_dat* data, uintptr_t base, char x_pin, char y_pin,
 	data->y_pin=y_pin;
 	data->z_pin=z_pin;
 
-
+	sem_wait(&port_mutex);
 	//enable scan and set gain to 0
 	out8(base+ADC_GAIN_OFFSET, (ADC_SCANEN)|(ADC_GAIN_0) );
 
@@ -231,7 +250,10 @@ void init_accelerometer(accel_dat* data, uintptr_t base, char x_pin, char y_pin,
 	//setup interrupt control register
 	temp=in8(base+INTERRUPT_CONTROL_REGISTER);
 	out8(base+INTERRUPT_CONTROL_REGISTER, temp & ~(ADC_CLK_EXTERNAL | ADC_INTERRUPT_ENABLE));
+	//start conversion so it will be ready
+	out8(base+CMD_REGISTER,ADC_TRIGGER_READ);
 
+	sem_post(&port_mutex);
 
 	struct sigevent event;
 	timer_t timer;
@@ -248,23 +270,37 @@ void init_accelerometer(accel_dat* data, uintptr_t base, char x_pin, char y_pin,
 
 	timer_settime(timer, 0, &value, NULL);
 
-	//start conversion
-	out8(base+CMD_REGISTER,ADC_TRIGGER_READ);
+
 }
 
 
 
 void setPin(uintptr_t port, char pin, char value){
+	sem_wait(& port_mutex);
 	char current=in8(port);
 	if(value){
 		out8(port, current | (1<<pin));
-		printf("set %x\n",current| (1<<pin));
+		printf("set %x\n", pin);
 	}else{
 		out8(port,current & ~(1<<pin));
-		printf("clear %x\n",current & ~(1<<pin));
+		printf("clear %x\n",pin);
 	}
+	sem_post(&port_mutex);
 
 
+}
+
+
+//Accepts a signed float from -1 to 1 that determines speed of the motor
+void motor_setSpeed(motor_t* motor, float speed){
+
+	if(speed <0.0){
+		motor_setMode(motor, backward);
+	}
+	else{
+		motor_setMode(motor, forward);
+	}
+	pwm_setDuty(&motor->pwm, fabs(speed));
 }
 
 void motor_setMode(motor_t* motor, motor_mode mode){
@@ -279,20 +315,27 @@ void motor_setMode(motor_t* motor, motor_mode mode){
 	  out8(motor->cnt_port, current| (((mode & 0b01)<<motor->input_1_pin) |((mode & 0b10)<<(motor->input_2_pin-1))) );*/
 }
 
-void init_motor(motor_t* motor, uintptr_t port, char input_1_pin, char input_2_pin){
+
+void init_motor(motor_t* motor, uintptr_t port, char input_1_pin, char input_2_pin, char pwmPin){
 
 	motor->cnt_port=port;
 	motor->input_1_pin=input_1_pin;
 	motor->input_2_pin=input_2_pin;
 
 	motor_setMode(motor,freewheel);
+
+	startPWM(&motor->pwm,port,0x1<<pwmPin,0,255);//pwm out on pin A0
+
 }
 
 
 /* ******************************************************************
  * Initiaize register handles
  *****************************************************************/
+
 int initialize_handles(){
+
+	sem_init(&port_mutex,0,1);
 
 	cnt_base = mmap_device_io( PORT_LENGTH, CNT_BASE );
 	if ( cnt_base == MAP_DEVICE_FAILED ) {
@@ -339,7 +382,7 @@ int initialize_handles(){
 		perror( "cnt_port_b map failed" ); return EXIT_FAILURE;
 	}
 
-
+	sem_wait(& port_mutex);
 	//Set reading from channel 0
 	out8(cnt_input_chan, 0x00);
 
@@ -353,7 +396,7 @@ int initialize_handles(){
 	//Set input range to +/- 10V
 	out8(cnt_input_rng, 0x00);
 	//wait for it to settle????
-
+	sem_post(& port_mutex);
 	//SEE PAGE 68 of Athena manual SECTION 13.4
 
 
@@ -366,38 +409,51 @@ void* pwm_thread(void* param){
 
 	int count=0;
 
+	sem_wait(&port_mutex);
+	args->currentOutput= in8(args->cnt_port);
 	out8(args->cnt_port,args->currentOutput | (args->output_mask)); //set high
+	sem_post(&port_mutex);
 
 	struct itimerspec value;
 
 
 	while(!args->stop){
+		if(args->high_time>0){
+			sem_wait(&port_mutex);
+			args->currentOutput= in8(args->cnt_port);
+			out8(args->cnt_port,args->currentOutput | (args->output_mask)); //set high
+			sem_post(&port_mutex);
+			value.it_value.tv_nsec = args->high_time*10000;
+			value.it_value.tv_sec = 0;
+			nanosleep(&value,NULL); //more friendly
+			//nanospin(&value);//much faster.. up it_value
+		}
+		sem_wait(&port_mutex);
 		args->currentOutput= in8(args->cnt_port);
+		out8(args->cnt_port,args->currentOutput & ~(args->output_mask)); //set low
+		sem_post(&port_mutex);
 
-		if (count== args->high_time){ //set output low and sleep for the rest of the time
-			out8(args->cnt_port,args->currentOutput & ~(args->output_mask));
-
-			value.it_value.tv_nsec = (args->period-args->high_time)*100;
-			value.it_value.tv_sec = 0;
-		}
-		else if (count >  args->period) //set high and sleep high time
-		{
-			out8(args->cnt_port,args->currentOutput | (args->output_mask));
-			count=0;
-			value.it_value.tv_nsec = args->high_time*100;
-			value.it_value.tv_sec = 0;
-
-		}
-		count++;
-
-
-		//nanosleep(&value,NULL); //more friendly
-		nanospin(&value);//much faster.. up it_value
+		value.it_value.tv_nsec = (args->period-args->high_time)*10000;
+		value.it_value.tv_sec = 0;
+		nanosleep(&value,NULL); //more friendly
+		//nanospin(&value);//much faster.. up it_value
 
 	}
 
 	//set the output to 0 before leaving
 	out8(args->cnt_port,args->currentOutput & ~(args->output_mask)); //set all the controlled pins to low
+
+	return 0;
+}
+
+void pwm_setDuty(pwm_args* args, float duty){
+
+	args->high_time=(int) (duty * args->period);
+
+	//clip high time to 0 and period
+	args->high_time = args->high_time < 0? 0 :args->high_time;
+	args->high_time = args->high_time > args->period ? args->period : args->high_time;
+
 }
 
 
@@ -478,10 +534,10 @@ int main(int argc, char *argv[]) {
 
 
 	//reset peripheral board
+	sem_wait(&port_mutex);
 	out8(cnt_base+CMD_REGISTER,RST_BRD);
-
 	out8(cnt_base, RST_DAC); //reset DAC
-
+	sem_post(&port_mutex);
 
 #define CHAN_A_MASK 0x02
 #define CHAN_B_MASK 0x04
@@ -501,16 +557,20 @@ int main(int argc, char *argv[]) {
 	encoder_dat encoderA;
 	initEncoder(&encoderA, 0, 1, 2, cnt_port_b);
 
-	pwm_args pwmA;
-	startPWM(&pwmA,cnt_port_a,0x01,128,255);
-
 
 	motor_t motorA;
-	init_motor(&motorA,cnt_port_a,1,2);
+	init_motor(&motorA,cnt_port_a,1,2,0); //motor controller out on pins A1,A2 pwm out on pin A0
 	motor_setMode(&motorA,forward);
 
-	accel_dat accelerometer;
-	init_accelerometer(&accelerometer,cnt_base,0,1,2,5000000);
+	motor_setSpeed(&motorA,.75);
+
+	motor_t motorB;
+	init_motor(&motorB,cnt_port_a,4,5,3);//motor controller out on pins A4,A5 pwm out on pin A3
+	motor_setMode(&motorB,forward);
+	motor_setSpeed(&motorB,.75);
+
+	//accel_dat accelerometer;
+	//init_accelerometer(&accelerometer,cnt_base,0,1,2,5000000); //Accelerometer on ADC 0,1,2 for x,y,z respectively
 
 	for(;;){
 
@@ -534,15 +594,6 @@ int main(int argc, char *argv[]) {
 		  }*/
 		char a=getchar();
 
-		if(a =='w'){
-			pwmA.high_time++;
-		}
-		if(a =='s'){
-			pwmA.high_time--;
-		}
-		if (a=='q'){
-			pwmA.stop=1;
-		}
 		if (a=='a'){
 			motor_setMode(&motorA,backward);
 		}
