@@ -46,7 +46,8 @@ const size_t PORT_LENGTH = 1;
 #define ADC_TRIGGER_READ	(0x80)
 
 #define ADC_RANGE_OFFSET 	2
-#define ADC_HIGH_15			(0xF<<4)
+#define ADC_HIGH_15			(15<<4)
+#define ADC_HIGH_2			(2<<4)
 #define ADC_LOW_0			(0x0)
 
 #define ADC_SCANEN 		(0b100)
@@ -98,7 +99,9 @@ typedef struct{
 	char y_pin;
 	char z_pin;
 
+	pipeline_dat xztheta;
 	pipeline_dat yztheta;
+	pipeline_dat xytheta;
 
 	pthread_t input_thread; //thread running that fills this structure
 
@@ -169,10 +172,11 @@ void startPWM(pwm_args* args,uintptr_t outputPort, char output_mask, int high_ti
 void initEncoder(encoder_dat* data, char index_pin, char chan_a_pin, char chan_b_pin, uintptr_t port );
 void updateEncoder(encoder_dat* data);
 
+#define PI 3.14159265
 
 double getAngle(accel_dat* data){
 
-#define PI 3.14159265
+
 
 	double x = (double)data->values[(int)data->x_pin]-5496;
 	double y = (double)data->values[(int)data->y_pin]-5496;
@@ -188,8 +192,11 @@ double getAngle(accel_dat* data){
 	//to fix this error in eclipse, make sure to include "-lm" in the linker options
 
 
+	add_to_pipeline(&data->xztheta,((PI/2-atan(x/z))*180/PI));
+	add_to_pipeline(&data->yztheta,((PI/2-atan(y/z))*180/PI));
+	add_to_pipeline(&data->xytheta,((PI/2-atan(x/y))*180/PI));
 
-	return (PI/2-atan(y/z))*180/PI;
+	return (PI/2-atan(x/z))*180/PI;
 
 }
 
@@ -221,9 +228,11 @@ void* accelCallback(void * param){
 	printf("theta: %lf\r\n",getAngle(data));*/
 
 
-	data->yztheta.value=getAngle(data);
-	printf("theta %lf\r\n",data->yztheta.value );
+	getAngle(data);
+	//printf("theta %lf\r\n",data->xytheta.value );
+	sem_post(&data->xztheta.mutex);
 	sem_post(&data->yztheta.mutex);
+	sem_post(&data->xytheta.mutex);
 
 	return 0;
 }
@@ -238,15 +247,21 @@ void init_accelerometer(accel_dat* data, uintptr_t base, char x_pin, char y_pin,
 	data->x_pin=x_pin;
 	data->y_pin=y_pin;
 	data->z_pin=z_pin;
-	sem_init(&data->yztheta.mutex,0,0);
 
+	init_pipeline(&data->xztheta,10);
+	init_pipeline(&data->yztheta,10);
+	init_pipeline(&data->xytheta,10);
 
 	sem_wait(&port_mutex);
 	//enable scan and set gain to 0
 	out8(base+ADC_GAIN_OFFSET, (ADC_SCANEN)|(ADC_GAIN_0) );
 
 	//set scan range from 0 to 15
-	out8(base+ADC_RANGE_OFFSET, (ADC_HIGH_15)|(ADC_LOW_0));
+	//out8(base+ADC_RANGE_OFFSET, (ADC_HIGH_15)|(ADC_LOW_0));
+
+	//set scan range from 0 to 3
+	out8(base+ADC_RANGE_OFFSET, (ADC_HIGH_2)|(ADC_LOW_0));
+
 
 	//setup interrupt control register
 	temp=in8(base+INTERRUPT_CONTROL_REGISTER);
@@ -279,10 +294,8 @@ void setPin(uintptr_t port, char pin, char value){
 	char current=in8(port);
 	if(value){
 		out8(port, current | (1<<pin));
-		printf("set %x\n", pin);
 	}else{
 		out8(port,current & ~(1<<pin));
-		printf("clear %x\n",pin);
 	}
 	sem_post(&port_mutex);
 
@@ -293,6 +306,7 @@ void setPin(uintptr_t port, char pin, char value){
 //Accepts a signed double from -1 to 1 that determines speed of the motor
 void motor_setSpeed(motor_t* motor, double speed){
 
+	pwm_setDuty(&motor->pwm, 0);
 
 	if(speed <0.0){
 		motor_setMode(motor, backward);
@@ -301,11 +315,11 @@ void motor_setSpeed(motor_t* motor, double speed){
 		motor_setMode(motor, forward);
 	}
 
-	if(fabs(speed)>0.1){
+	if(fabs(speed)>0.001){
 		pwm_setDuty(&motor->pwm, fabs(speed));
 	}else{
-
 		pwm_setDuty(&motor->pwm, 0);
+
 	}
 }
 
@@ -435,20 +449,22 @@ void* pwm_thread(void* param){
 			args->currentOutput= in8(args->cnt_port);
 			out8(args->cnt_port,args->currentOutput | (args->output_mask)); //set high
 			sem_post(&port_mutex);
-			value.it_value.tv_nsec = args->high_time*10000;
+			value.it_value.tv_nsec = args->high_time*50000;
 			value.it_value.tv_sec = 0;
 			nanosleep(&value,NULL); //more friendly
 			//nanospin(&value);//much faster.. up it_value
 		}
-		sem_wait(&port_mutex);
-		args->currentOutput= in8(args->cnt_port);
-		out8(args->cnt_port,args->currentOutput & ~(args->output_mask)); //set low
-		sem_post(&port_mutex);
+		if(args->period-args->high_time>0){
+			sem_wait(&port_mutex);
+			args->currentOutput= in8(args->cnt_port);
+			out8(args->cnt_port,args->currentOutput & ~(args->output_mask)); //set low
+			sem_post(&port_mutex);
 
-		value.it_value.tv_nsec = (args->period-args->high_time)*10000;
-		value.it_value.tv_sec = 0;
-		nanosleep(&value,NULL); //more friendly
-		//nanospin(&value);//much faster.. up it_value
+			value.it_value.tv_nsec = (args->period-args->high_time)*50000;
+			value.it_value.tv_sec = 0;
+			nanosleep(&value,NULL); //more friendly
+			//nanospin(&value);//much faster.. up it_value
+		}
 
 	}
 
@@ -582,11 +598,11 @@ int main(int argc, char *argv[]) {
 	motor_setSpeed(&motorB,.75);
 
 	accel_dat accelerometer;
-	init_accelerometer(&accelerometer,cnt_base,0,1,2,5000000); //Accelerometer on ADC 0,1,2 for x,y,z respectively
+	init_accelerometer(&accelerometer,cnt_base,0,1,2,10000); //Accelerometer on ADC 0,1,2 for x,y,z respectively
 
 	pid_data PID;
 	double setpoint = 90.0;
-	init_pid(&PID, &setpoint, &accelerometer.yztheta,.05,0.0,0.0);
+	init_pid(&PID, &setpoint, &accelerometer.yztheta,0.1,0.0,0.0);
 	start_pid(&PID);
 
 
@@ -609,14 +625,18 @@ int main(int argc, char *argv[]) {
 			motor_setMode(&motorA,brake);
 		}
 
-		updateEncoder(&encoderA);
+		//updateEncoder(&encoderA);
+
+		sem_wait(&PID.output.mutex);
 
 		if(++count > 1000){
 			count =0;
-			printf("set: %lf\n",PID.output.value);
-			motor_setSpeed(&motorA,PID.output.value);
-			motor_setSpeed(&motorB,PID.output.value);
+			printf("theta: %lf set: %lf\n",accelerometer.yztheta.average,PID.output.value);
+
 		}
+		motor_setSpeed(&motorA,PID.output.value);
+		motor_setSpeed(&motorB,PID.output.value);
+
 
 
 	}

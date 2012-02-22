@@ -7,6 +7,50 @@
 
 #include "pid.h"
 
+void init_pipeline(pipeline_dat* dat, int size){
+	sem_init(&dat->mutex,0,0);
+
+	if (size > 10){
+		perror("Error: pipeline size max ten");
+
+	}
+
+	dat->size=size;
+	dat->index=0;
+	int i;
+	for (i=0;i<dat->size;i++){
+		dat->values[i]=0.0;
+	}
+	dat->average=0.0;
+}
+
+void add_to_pipeline(pipeline_dat* dat, double val){
+
+	if (dat->index >  dat->size){
+		perror("array out of bounds");
+	}
+
+	dat->value=val;
+
+	dat->values[dat->index]= val;
+	dat->index = (dat->index+1) % dat->size;
+
+	if(dat->index==0){
+		sem_post(&dat->mutex);
+
+	}
+
+
+	int i;
+	dat->average=0;
+	for (i=0;i<(dat->size);i++){
+		dat->average+=val;
+	}
+	dat->average /= dat->size;
+
+}
+
+
 void init_pid(pid_data* pid,double* setpoint, pipeline_dat* input, double pk, double ik, double dk) {
 
 	pid->setpoint=setpoint;
@@ -44,12 +88,12 @@ void* pid_thread(void* param){
 
 		pid->e[2] = pid->e[1];
 		pid->e[1] = pid->e[0];
-		pid->e[0] = *pid->setpoint - pid->input->value;
+		pid->e[0] = (*pid->setpoint - pid->input->average);
 
 
 		//update output as per pid equation
 		//u(k+1) = u(k) + e(k+1)(pk+ik+dk) - e(k)(pk+2dk) + e(k-1)dk
-		//pid->output = pid->u[2] + pid->u[0]*(pid->pk+pid->ik+pid->dk) - pid->e[0]*(pid->pk+2*pid->dk) + pid->e[1]*pid->dk;
+		//pid->output.value = pid->u[2] + pid->u[0]*(pid->pk+pid->ik+pid->dk) - pid->e[0]*(pid->pk+2*pid->dk) + pid->e[1]*pid->dk;
 
 		pid->output.value=pid->u[0]+
 				pid->pk*(pid->e[0]-pid->e[1])
