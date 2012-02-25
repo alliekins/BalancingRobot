@@ -16,6 +16,7 @@
 #include <semaphore.h>
 #include <math.h>
 
+#include "iodefs.h"
 #include "pid.h"
 #include "motor.h"
 #include "accelerometer.h"
@@ -26,109 +27,9 @@ void * Control(void* arg);
 void Output();
 void * Input(void* arg);
 void * UserInput (void* arg);
-int initialize_handles();
 void RunControlAlgorithm();
 
-const size_t PORT_LENGTH = 1;
-
-#define CNT_BASE  0x280
-#define ADC_GAIN_OFFSET 3
-#define RSTFIFO 	(0x8)
-
-#define ATD_STATUS 	3
-#define STS_BM		(0x80)
-
-#define ATD_FIFO_DEPTH	6
-
-#define ATD_MSB		1
-#define ATD_LSB		0
-
-#define CMD_REGISTER		0
-#define RST_DAC				0x20
-#define RST_BRD				0x40
-#define ADC_TRIGGER_READ	(0x80)
-
-#define ADC_RANGE_OFFSET 	2
-#define ADC_HIGH_15			(0xF<<4)
-#define ADC_LOW_0			(0x0)
-
-#define ADC_SCANEN 		(0b100)
-#define ADC_GAIN_0 		(0b00)
-
-
-#define INTERRUPT_CONTROL_REGISTER	4
-#define ADC_CLK_EXTERNAL 		(0b10000)
-#define ADC_INTERRUPT_ENABLE		(0b1)
-
-
-
-const uint64_t INPUT_CHAN = (CNT_BASE+2);
-const uint64_t OUTPUT_CHAN_LOW = (CNT_BASE+6);
-const uint64_t OUTPUT_CHAN_HIGH = (CNT_BASE+7);
-const uint64_t DDR = (CNT_BASE+11);
-const uint64_t PORT_A = (CNT_BASE+8);
-const uint64_t PORT_B = (CNT_BASE+9);
-
-
-const uint64_t INPUT_RNG = (CNT_BASE+3);
-const uint64_t CNT1_CLK_100KHZ = 0x40;
-//register handles
-
-//TODO: need to protect these ports with mutexes.
-sem_t port_mutex;
-uintptr_t cnt_base;
-uintptr_t cnt_base_plus;
-uintptr_t cnt_input_rng;
-uintptr_t cnt_input_chan;
-uintptr_t cnt_output_chan_high;
-uintptr_t cnt_output_chan_low;
-uintptr_t cnt_ddr;
-uintptr_t cnt_port_a;
-uintptr_t cnt_port_b;
-
-double getAngle(accel_dat* data);
-
-void setPin(uintptr_t port, char pin, char value);
 int initialize_handles();
-
-double getAngle(accel_dat* data){
-
-#define PI 3.14159265
-
-	double x = (double)data->values[(int)data->x_pin]-5496;
-	double y = (double)data->values[(int)data->y_pin]-5496;
-	double z = (double)data->values[(int)data->z_pin]-5496;
-
-
-	double len = sqrt((x * x) + (z * z)+ (y*y) );
-
-	y=y/len;
-	x=x/len;
-	z=z/len;
-
-	//to fix this error in eclipse, make sure to include "-lm" in the linker options
-
-
-
-	return (PI/2-atan(y/z))*180/PI;
-
-}
-
-void setPin(uintptr_t port, char pin, char value){
-	sem_wait(& port_mutex);
-	char current=in8(port);
-	if(value){
-		out8(port, current | (1<<pin));
-		printf("set %x\n", pin);
-	}else{
-		out8(port,current & ~(1<<pin));
-		printf("clear %x\n",pin);
-	}
-	sem_post(&port_mutex);
-
-
-}
-
 
 
 /* ******************************************************************

@@ -10,6 +10,8 @@
 
 #include <stdint.h>
 #include "pwm.h"
+#include "iodefs.h"
+#include <math.h>
 
 typedef enum {
 	freewheel	= 0b00,

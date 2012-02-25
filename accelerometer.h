@@ -8,7 +8,12 @@
 #ifndef ACCEL_H_
 #define ACCEL_H_
 
+#include "iodefs.h"
+#include <hw/inout.h>
 #include <stdint.h>
+#include <semaphore.h>
+#include <pthread.h>
+#include <math.h>
 
 typedef struct{
 
@@ -31,5 +36,6 @@ typedef struct{
 
 void* accelCallback(void * param);
 void init_accelerometer(accel_dat* data, uintptr_t base, char x_pin, char y_pin, char z_pin, int nseconds);
+double getAngle(accel_dat* data);
 
 #endif /* ACCEL_H_ */

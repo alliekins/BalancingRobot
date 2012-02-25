@@ -9,6 +9,7 @@
 #define ENCODER_H_
 
 #include <stdint.h>
+#include <hw/inout.h>
 
 typedef struct{
 	uintptr_t cnt_port;	//port that encoder is hooked to

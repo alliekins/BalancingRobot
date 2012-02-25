@@ -7,8 +7,6 @@
 
 #include "accelerometer.h"
 
-#include <semaphore.h>
-
 void* accelCallback(void * param){
 	accel_dat* data= (accel_dat*) param;
 
@@ -86,5 +84,28 @@ void init_accelerometer(accel_dat* data, uintptr_t base, char x_pin, char y_pin,
 	value.it_interval.tv_nsec=nseconds;
 
 	timer_settime(timer, 0, &value, NULL);
+
+}
+
+double getAngle(accel_dat* data){
+
+#define PI 3.14159265
+
+	double x = (double)data->values[(int)data->x_pin]-5496;
+	double y = (double)data->values[(int)data->y_pin]-5496;
+	double z = (double)data->values[(int)data->z_pin]-5496;
+
+
+	double len = sqrt((x * x) + (z * z)+ (y*y) );
+
+	y=y/len;
+	x=x/len;
+	z=z/len;
+
+	//to fix this error in eclipse, make sure to include "-lm" in the linker options
+
+
+
+	return (PI/2-atan(y/z))*180/PI;
 
 }

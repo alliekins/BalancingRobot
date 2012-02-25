@@ -9,11 +9,7 @@
 #define PID_H_
 #include <pthread.h>
 #include <semaphore.h>
-
-typedef struct{
-	double value;
-	sem_t mutex;
-}pipeline_dat;
+#include "iodefs.h"
 
 typedef struct{
 	pthread_t pid_thread;

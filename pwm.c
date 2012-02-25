@@ -7,7 +7,6 @@
 
 #include "pwm.h"
 
-
 void* pwm_thread(void* param){
 	pwm_args* args = (pwm_args*)param;
 

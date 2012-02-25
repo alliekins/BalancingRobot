@@ -8,6 +8,13 @@
 #ifndef PWM_H_
 #define PMW_H_
 
+#include <stdint.h>
+#include <semaphore.h>
+#include <time.h>
+#include <hw/inout.h>
+#include <pthread.h>
+#include "iodefs.h"
+
 typedef struct{
 	int high_time;
 	int period;
