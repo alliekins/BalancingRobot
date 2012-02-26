@@ -10,8 +10,8 @@
 void init_pipeline(pipeline_dat* dat, int size){
 	sem_init(&dat->mutex,0,0);
 
-	if (size > 10){
-		perror("Error: pipeline size max ten");
+	if (size > 100){
+		perror("Error: pipeline size max 100");
 
 	}
 
@@ -26,7 +26,7 @@ void init_pipeline(pipeline_dat* dat, int size){
 
 void add_to_pipeline(pipeline_dat* dat, double val){
 
-	if (dat->index >  dat->size){
+	if (dat->index >  dat->size || dat->size > 100){
 		perror("array out of bounds");
 	}
 

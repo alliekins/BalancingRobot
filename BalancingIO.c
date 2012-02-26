@@ -3,6 +3,7 @@
 
 #include <time.h>
 
+#include <sched.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -57,6 +58,8 @@ const size_t PORT_LENGTH = 1;
 #define INTERRUPT_CONTROL_REGISTER	4
 #define ADC_CLK_EXTERNAL 		(0b10000)
 #define ADC_INTERRUPT_ENABLE		(0b1)
+
+#define MAXSPEED 0.85
 
 
 
@@ -248,9 +251,9 @@ void init_accelerometer(accel_dat* data, uintptr_t base, char x_pin, char y_pin,
 	data->y_pin=y_pin;
 	data->z_pin=z_pin;
 
-	init_pipeline(&data->xztheta,10);
-	init_pipeline(&data->yztheta,10);
-	init_pipeline(&data->xytheta,10);
+	init_pipeline(&data->xztheta,90);
+	init_pipeline(&data->yztheta,90);
+	init_pipeline(&data->xytheta,90);
 
 	sem_wait(&port_mutex);
 	//enable scan and set gain to 0
@@ -306,6 +309,14 @@ void setPin(uintptr_t port, char pin, char value){
 //Accepts a signed double from -1 to 1 that determines speed of the motor
 void motor_setSpeed(motor_t* motor, double speed){
 
+	if (speed> MAXSPEED){
+		speed=MAXSPEED;
+	}
+	if (speed < -MAXSPEED){
+			speed=-MAXSPEED;
+	}
+
+
 	pwm_setDuty(&motor->pwm, 0);
 
 	if(speed <0.0){
@@ -315,7 +326,7 @@ void motor_setSpeed(motor_t* motor, double speed){
 		motor_setMode(motor, forward);
 	}
 
-	if(fabs(speed)>0.001){
+	if(fabs(speed) > 0.01){
 		pwm_setDuty(&motor->pwm, fabs(speed));
 	}else{
 		pwm_setDuty(&motor->pwm, 0);
@@ -449,7 +460,7 @@ void* pwm_thread(void* param){
 			args->currentOutput= in8(args->cnt_port);
 			out8(args->cnt_port,args->currentOutput | (args->output_mask)); //set high
 			sem_post(&port_mutex);
-			value.it_value.tv_nsec = args->high_time*50000;
+			value.it_value.tv_nsec = args->high_time*2000;
 			value.it_value.tv_sec = 0;
 			nanosleep(&value,NULL); //more friendly
 			//nanospin(&value);//much faster.. up it_value
@@ -460,7 +471,7 @@ void* pwm_thread(void* param){
 			out8(args->cnt_port,args->currentOutput & ~(args->output_mask)); //set low
 			sem_post(&port_mutex);
 
-			value.it_value.tv_nsec = (args->period-args->high_time)*50000;
+			value.it_value.tv_nsec = (args->period-args->high_time)*2000;
 			value.it_value.tv_sec = 0;
 			nanosleep(&value,NULL); //more friendly
 			//nanospin(&value);//much faster.. up it_value
@@ -495,6 +506,8 @@ void startPWM(pwm_args* args,uintptr_t outputPort, char output_mask, int high_ti
 	args->stop=0;
 
 	pthread_create(&args->output_thread,NULL, &pwm_thread,(void*)args); //create a new thread for pwm
+	pthread_setschedprio(&args->output_thread,sched_get_priority_max(SCHED_FIFO));
+
 
 
 }
@@ -601,7 +614,7 @@ int main(int argc, char *argv[]) {
 	init_accelerometer(&accelerometer,cnt_base,0,1,2,10000); //Accelerometer on ADC 0,1,2 for x,y,z respectively
 
 	pid_data PID;
-	double setpoint = 90.0;
+	double setpoint = 86.0;
 	init_pid(&PID, &setpoint, &accelerometer.yztheta,0.1,0.0,0.0);
 	start_pid(&PID);
 
@@ -629,7 +642,7 @@ int main(int argc, char *argv[]) {
 
 		sem_wait(&PID.output.mutex);
 
-		if(++count > 1000){
+		if(++count > 100){
 			count =0;
 			printf("theta: %lf set: %lf\n",accelerometer.yztheta.average,PID.output.value);
 
@@ -637,7 +650,8 @@ int main(int argc, char *argv[]) {
 		motor_setSpeed(&motorA,PID.output.value);
 		motor_setSpeed(&motorB,PID.output.value);
 
-
+		//motor_setSpeed(&motorA,-.25);
+		//motor_setSpeed(&motorB,-.25);
 
 	}
 	return EXIT_SUCCESS;

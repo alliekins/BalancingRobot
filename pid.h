@@ -12,7 +12,7 @@
 
 typedef struct{
 	double value;
-	double values[10];
+	double values[100];
 	int index;
 	int size;
 	double average;
