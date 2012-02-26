@@ -5,13 +5,15 @@
  *      Author: aah9038
  */
 
-#ifndef IODEFS_H_
-#define IODEFS_H_
-
 #include <stdint.h>
 #include <semaphore.h>
 #include <hw/inout.h>
 #include <stdio.h>
+
+#ifndef IODEFS_H_
+#define IODEFS_H_
+
+
 
 typedef struct{
 	double value;
@@ -20,7 +22,7 @@ typedef struct{
 
 void setPin(uintptr_t port, char pin, char value);
 
-const size_t PORT_LENGTH = 1;
+#define PORT_LENGTH 1
 
 #define CNT_BASE  0x280
 #define ADC_GAIN_OFFSET 3
@@ -53,16 +55,16 @@ const size_t PORT_LENGTH = 1;
 
 
 
-const uint64_t INPUT_CHAN = (CNT_BASE+2);
-const uint64_t OUTPUT_CHAN_LOW = (CNT_BASE+6);
-const uint64_t OUTPUT_CHAN_HIGH = (CNT_BASE+7);
-const uint64_t DDR = (CNT_BASE+11);
-const uint64_t PORT_A = (CNT_BASE+8);
-const uint64_t PORT_B = (CNT_BASE+9);
+#define INPUT_CHAN (CNT_BASE+2)
+#define OUTPUT_CHAN_LOW (CNT_BASE+6)
+#define OUTPUT_CHAN_HIGH (CNT_BASE+7)
+#define DDR (CNT_BASE+11)
+#define PORT_A (CNT_BASE+8)
+#define PORT_B (CNT_BASE+9)
 
 
-const uint64_t INPUT_RNG = (CNT_BASE+3);
-const uint64_t CNT1_CLK_100KHZ = 0x40;
+#define INPUT_RNG (CNT_BASE+3)
+#define CNT1_CLK_100KHZ 0x40
 //register handles
 
 //TODO: need to protect these ports with mutexes.

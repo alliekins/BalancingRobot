@@ -10,7 +10,6 @@
 //Accepts a signed double from -1 to 1 that determines speed of the motor
 void motor_setSpeed(motor_t* motor, double speed){
 
-
 	if(speed <0.0){
 		motor_setMode(motor, backward);
 	}

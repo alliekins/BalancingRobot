@@ -189,7 +189,7 @@ int main(int argc, char *argv[]) {
 			motor_setMode(&motorA,brake);
 		}
 
-		updateEncoder(&encoderA);
+		//updateEncoder(&encoderA);
 
 		if(++count > 1000){
 			count =0;
