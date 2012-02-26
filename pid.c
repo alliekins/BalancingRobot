@@ -6,6 +6,7 @@
  */
 
 #include "pid.h"
+#include "pipeline.h"
 
 void init_pipeline(pipeline_dat* dat, int size){
 	sem_init(&dat->mutex,0,0);

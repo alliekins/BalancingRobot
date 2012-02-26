@@ -9,17 +9,8 @@
 #define PID_H_
 #include <pthread.h>
 #include <semaphore.h>
-
-typedef struct{
-	double value;
-	double values[100];
-	int index;
-	int size;
-	double average;
-
-	sem_t mutex;
-}pipeline_dat;
-
+#include "iodefs.h"
+#include "pipeline.h"
 
 
 typedef struct{
@@ -30,7 +21,6 @@ typedef struct{
 	double u[3]; 		//output history
 	double pk,ik,dk; 	//PID constants
 	pipeline_dat output;
-
 }pid_data;
 
 void* pid_thread(void* param);
