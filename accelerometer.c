@@ -6,10 +6,10 @@
  */
 
 #include "accelerometer.h"
+#include "iodefs.h"
 
 void* accelCallback(void * param){
 	accel_dat* data= (accel_dat*) param;
-
 
 	sem_wait(&port_mutex);
 	while ( in8(data->base+ATD_STATUS) & STS_BM){ //wait for the STS bit to clear
@@ -35,9 +35,8 @@ void* accelCallback(void * param){
 	printf("theta: %lf\r\n",getAngle(data));*/
 
 
-	data->yztheta.value=getAngle(data);
-	printf("theta %lf\r\n",data->yztheta.value );
-	sem_post(&data->yztheta.mutex);
+	getAngle(data);
+	//printf("theta %lf\r\n",data->yztheta.value );
 
 	return 0;
 }
@@ -52,15 +51,20 @@ void init_accelerometer(accel_dat* data, uintptr_t base, char x_pin, char y_pin,
 	data->x_pin=x_pin;
 	data->y_pin=y_pin;
 	data->z_pin=z_pin;
-	sem_init(&data->yztheta.mutex,0,0);
 
+	init_pipeline(&data->xztheta,90);
+	init_pipeline(&data->yztheta,90);
+	init_pipeline(&data->xytheta,90);
 
 	sem_wait(&port_mutex);
 	//enable scan and set gain to 0
 	out8(base+ADC_GAIN_OFFSET, (ADC_SCANEN)|(ADC_GAIN_0) );
 
 	//set scan range from 0 to 15
-	out8(base+ADC_RANGE_OFFSET, (ADC_HIGH_15)|(ADC_LOW_0));
+	//out8(base+ADC_RANGE_OFFSET, (ADC_HIGH_15)|(ADC_LOW_0));
+
+	//set scan range from 0 to 2
+	out8(base+ADC_RANGE_OFFSET, (ADC_HIGH_2)|(ADC_LOW_0));
 
 	//setup interrupt control register
 	temp=in8(base+INTERRUPT_CONTROL_REGISTER);
@@ -104,7 +108,13 @@ double getAngle(accel_dat* data){
 
 	//to fix this error in eclipse, make sure to include "-lm" in the linker options
 
+	add_to_pipeline(&data->xztheta,((PI/2-atan(x/z))*180/PI));
+	add_to_pipeline(&data->yztheta,((PI/2-atan(y/z))*180/PI));
+	add_to_pipeline(&data->xytheta,((PI/2-atan(x/y))*180/PI));
 
+	sem_post(&data->xztheta.mutex);
+	sem_post(&data->yztheta.mutex);
+	sem_post(&data->xytheta.mutex);
 
 	return (PI/2-atan(y/z))*180/PI;
 

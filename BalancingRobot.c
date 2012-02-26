@@ -21,6 +21,7 @@
 #include "motor.h"
 #include "accelerometer.h"
 #include "encoder.h"
+#include "pipeline.h"
 
 void * Control(void* arg);
 //void * Output(void* arg);
@@ -107,6 +108,61 @@ int initialize_handles(){
 	return EXIT_SUCCESS;
 }
 
+void * Input(void* arg){
+	pid_data* pid = (pid_data*)arg;
+	double* ptr;
+	double val;
+
+	while (1) {
+			char variable = getchar();
+			char operator = getchar();
+			scanf("%lf", &val);
+			while (getchar() != '\n'){}
+
+			switch(variable){
+			case 'p':
+				ptr = &(pid->pk);
+				break;
+			case 'i':
+				ptr = &(pid->ik);
+				break;
+			case 'd':
+				ptr = &(pid->dk);
+				break;
+			case 's':
+				ptr = pid->setpoint;
+				break;
+			default:
+				printf("Invalid variable\n");
+				continue;
+			}
+
+			switch(operator) {
+			case '=':
+				*ptr = val;
+				break;
+			case '+':
+				*ptr += val;
+				break;
+			case '-':
+				*ptr -= val;
+				break;
+
+			default:
+				printf("Invalid operator\n");
+				continue;
+			}
+
+			printf("%c:%lf\r\n", variable,*ptr);
+		}
+
+
+
+
+}
+
+
+
 int main(int argc, char *argv[]) {
 
 
@@ -162,15 +218,16 @@ int main(int argc, char *argv[]) {
 	motor_setSpeed(&motorB,.75);
 
 	accel_dat accelerometer;
-	init_accelerometer(&accelerometer,cnt_base,0,1,2,5000000); //Accelerometer on ADC 0,1,2 for x,y,z respectively
+	//Accelerometer on ADC 0,1,2 for x,y,z respectively sample at 400hz
+	init_accelerometer(&accelerometer,cnt_base,0,1,2,2500000);
 
 	pid_data PID;
-	double setpoint = 90.0;
-	init_pid(&PID, &setpoint, &accelerometer.yztheta,.05,0.0,0.0);
+	double setpoint = 82.5;
+	init_pid(&PID, &setpoint, &accelerometer.yztheta,.19,0.0,0.0);
 	start_pid(&PID);
 
-
-
+	pthread_t input_thread;
+	pthread_create(&input_thread,NULL,&Input, (void*)&PID);
 
 	for(;;){
 
@@ -191,13 +248,14 @@ int main(int argc, char *argv[]) {
 
 		//updateEncoder(&encoderA);
 
+		sem_wait(&PID.output.mutex);
+
 		if(++count > 1000){
 			count =0;
-			printf("set: %lf\n",PID.output.value);
-			motor_setSpeed(&motorA,PID.output.value);
-			motor_setSpeed(&motorB,PID.output.value);
+			printf("theta: %lf set: %lf\r\n",accelerometer.yztheta.average,PID.output.value);
 		}
-
+		motor_setSpeed(&motorA,PID.output.value);
+		motor_setSpeed(&motorB,PID.output.value);
 
 	}
 	return EXIT_SUCCESS;

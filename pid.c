@@ -6,6 +6,7 @@
  */
 
 #include "pid.h"
+#include "pipeline.h"
 
 void init_pid(pid_data* pid,double* setpoint, pipeline_dat* input, double pk, double ik, double dk) {
 

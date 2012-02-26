@@ -15,11 +15,6 @@
 
 
 
-typedef struct{
-	double value;
-	sem_t mutex;
-}pipeline_dat;
-
 void setPin(uintptr_t port, char pin, char value);
 
 #define PORT_LENGTH 1
@@ -42,7 +37,8 @@ void setPin(uintptr_t port, char pin, char value);
 #define ADC_TRIGGER_READ	(0x80)
 
 #define ADC_RANGE_OFFSET 	2
-#define ADC_HIGH_15			(0xF<<4)
+#define ADC_HIGH_15			(15<<4)
+#define ADC_HIGH_2			(2<<4)
 #define ADC_LOW_0			(0x0)
 
 #define ADC_SCANEN 		(0b100)

@@ -10,6 +10,8 @@
 #include <pthread.h>
 #include <semaphore.h>
 #include "iodefs.h"
+#include "pipeline.h"
+
 
 typedef struct{
 	pthread_t pid_thread;
@@ -19,7 +21,6 @@ typedef struct{
 	double u[3]; 		//output history
 	double pk,ik,dk; 	//PID constants
 	pipeline_dat output;
-
 }pid_data;
 
 void* pid_thread(void* param);

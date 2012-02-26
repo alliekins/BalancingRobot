@@ -9,6 +9,7 @@
 #define ACCEL_H_
 
 #include "iodefs.h"
+#include "pipeline.h"
 #include <hw/inout.h>
 #include <stdint.h>
 #include <semaphore.h>
@@ -28,7 +29,9 @@ typedef struct{
 	char y_pin;
 	char z_pin;
 
+	pipeline_dat xztheta;
 	pipeline_dat yztheta;
+	pipeline_dat xytheta;
 
 	pthread_t input_thread; //thread running that fills this structure
 
