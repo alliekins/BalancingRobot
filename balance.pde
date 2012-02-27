@@ -41,18 +41,19 @@ double setpoint=19.5;
 const double polynomal = 1;*///works really well with better x offset
 
 ///////////////Experimental///////////////////
+
 #define MAXSPEED 1.0
 #define BUF_SIZE 35
 #define IMAX 10
 #define ZERO 353
 
-const double p =0.09;
+const double p =0.046;
 // const double i =0.02;
-const double i =0.06;//trying unwinding
+const double i =0.035;//trying unwinding
 
-const double d = .01;
+const double d = .05;
 
-double setpoint=19.5;
+double setpoint=37.85;
 
 const double polynomal = 1;
 
@@ -131,12 +132,12 @@ void setMode(char mode){
 
 }
 
-
 double getAngle(){
 
-  double x=analogRead(0)-14.29;
+  double x=analogRead(0)-14;
   double y=analogRead(1)-x;
   double z=analogRead(2)-x;
+  
 
   x=0;
 
@@ -171,7 +172,7 @@ void setSpeed(double speed){
   else{
     setMode(forward);
   }
-  if (fabs(speed)> 0.001){
+  if (fabs(speed)> 0.01){
     analogWrite(3,fabs(speed)*255);
     analogWrite(6,fabs(speed)*255);
   } 
@@ -229,8 +230,9 @@ void loop() {
 
 
   lastError=error;
-  error=setpoint-average;
+  error=(setpoint-average)*4.22;
   integral+=error;
+  
 
   deriv=error-lastError;
 
@@ -251,7 +253,7 @@ void loop() {
 
   int e = error;
   int o = output*255;
-  if (count++ >= 1){
+  if (count++ >= 5){
     count=0;
     sprintf(buf,"e:%d\to:%d\tp:%d\ti:%d\td:%d",e,o,pi,ii,di);
     Serial.println(buf);
