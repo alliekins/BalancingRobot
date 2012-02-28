@@ -52,9 +52,9 @@ void init_accelerometer(accel_dat* data, uintptr_t base, char x_pin, char y_pin,
 	data->y_pin=y_pin;
 	data->z_pin=z_pin;
 
-	init_pipeline(&data->xztheta,90);
-	init_pipeline(&data->yztheta,90);
-	init_pipeline(&data->xytheta,90);
+	init_pipeline(&(data->xztheta),20);
+	init_pipeline(&(data->yztheta),20);
+	init_pipeline(&(data->xytheta),20);
 
 	sem_wait(&port_mutex);
 	//enable scan and set gain to 0
@@ -95,9 +95,9 @@ double getAngle(accel_dat* data){
 
 #define PI 3.14159265
 
-	double x = (double)data->values[(int)data->x_pin]-5496;
-	double y = (double)data->values[(int)data->y_pin]-5496;
-	double z = (double)data->values[(int)data->z_pin]-5496;
+	double x = (double)data->values[(int)data->x_pin]-581;
+	double y = (double)data->values[(int)data->y_pin]-5496-x; //remove x (0) to remove noise
+	double z = (double)data->values[(int)data->z_pin]-5496-x; //
 
 
 	double len = sqrt((x * x) + (z * z)+ (y*y) );
@@ -111,10 +111,6 @@ double getAngle(accel_dat* data){
 	add_to_pipeline(&data->xztheta,((PI/2-atan(x/z))*180/PI));
 	add_to_pipeline(&data->yztheta,((PI/2-atan(y/z))*180/PI));
 	add_to_pipeline(&data->xytheta,((PI/2-atan(x/y))*180/PI));
-
-	sem_post(&data->xztheta.mutex);
-	sem_post(&data->yztheta.mutex);
-	sem_post(&data->xytheta.mutex);
 
 	return (PI/2-atan(y/z))*180/PI;
 

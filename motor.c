@@ -17,7 +17,7 @@ void motor_setSpeed(motor_t* motor, double speed){
 		motor_setMode(motor, forward);
 	}
 
-	if(fabs(speed)>0.1){
+	if(fabs(speed)>0.01){
 		pwm_setDuty(&motor->pwm, fabs(speed));
 	}else{
 

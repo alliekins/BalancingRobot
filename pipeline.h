@@ -9,16 +9,20 @@
 #define PIPELINE_H_
 
 typedef struct{
-	double value;
-	double values[100];
+	double lastInput;
+	double* values;
 	int index;
 	int size;
-	double average;
+	//double average; use accessor
+	sem_t read_mutex;
+
 	sem_t mutex;
 }pipeline_dat;
 
 void init_pipeline(pipeline_dat* dat, int size);
 
 void add_to_pipeline(pipeline_dat* dat, double val);
+
+double pipe_get_average(pipeline_dat* dat);
 
 #endif /* PIPELINE_H_ */

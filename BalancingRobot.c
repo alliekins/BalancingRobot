@@ -22,10 +22,10 @@
 #include "accelerometer.h"
 #include "encoder.h"
 #include "pipeline.h"
+#include "BalancingRobot.h"
 
 void * Control(void* arg);
-//void * Output(void* arg);
-void Output();
+void * Output(void* arg);
 void * Input(void* arg);
 void * UserInput (void* arg);
 void RunControlAlgorithm();
@@ -109,11 +109,12 @@ int initialize_handles(){
 }
 
 void * Input(void* arg){
-	pid_data* pid = (pid_data*)arg;
+	pid_dat* pid = (pid_dat*)arg;
 	double* ptr;
 	double val;
 
 	while (1) {
+
 			char variable = getchar();
 			char operator = getchar();
 			scanf("%lf", &val);
@@ -152,13 +153,19 @@ void * Input(void* arg){
 				printf("Invalid operator\n");
 				continue;
 			}
-
 			printf("%c:%lf\r\n", variable,*ptr);
 		}
+}
 
+void * Output(void* arg){
+	robot_data* bot = (robot_data*) arg;
 
-
-
+	for(;;){
+		//consume the PID output
+		sem_wait(&bot->PID.output.mutex);
+		motor_setSpeed(&bot->motorA,pipe_get_average(&bot->PID.output));
+		motor_setSpeed(&bot->motorB,pipe_get_average(&bot->PID.output));
+	}
 }
 
 
@@ -195,67 +202,42 @@ int main(int argc, char *argv[]) {
 	//setup port A as output (for motor controller)
 	out8(cnt_ddr, 0b00000010);
 
-	unsigned char input=0;
-	unsigned char last_input=0;
-	unsigned char debounce=0;
 
-	int position=0;
-	int count=0;
+	robot_data bot;
 
-	encoder_dat encoderA;
-	initEncoder(&encoderA, 0, 1, 2, cnt_port_b);
+	init_motor(&bot.motorA,cnt_port_a,1,2,0); //motor controller out on pins A1,A2 pwm out on pin A0
+	motor_setMode(&bot.motorA,forward);
 
+	init_motor(&bot.motorB,cnt_port_a,4,5,3);//motor controller out on pins A4,A5 pwm out on pin A3
+	motor_setMode(&bot.motorB,forward);
 
-	motor_t motorA;
-	init_motor(&motorA,cnt_port_a,1,2,0); //motor controller out on pins A1,A2 pwm out on pin A0
-	motor_setMode(&motorA,forward);
-
-	motor_setSpeed(&motorA,.75);
-
-	motor_t motorB;
-	init_motor(&motorB,cnt_port_a,4,5,3);//motor controller out on pins A4,A5 pwm out on pin A3
-	motor_setMode(&motorB,forward);
-	motor_setSpeed(&motorB,.75);
-
-	accel_dat accelerometer;
 	//Accelerometer on ADC 0,1,2 for x,y,z respectively sample at 400hz
-	init_accelerometer(&accelerometer,cnt_base,0,1,2,2500000);
+	init_accelerometer(&bot.accelerometer,cnt_base,0,1,2,2500000);
 
-	pid_data PID;
-	double setpoint = 82.5;
-	init_pid(&PID, &setpoint, &accelerometer.yztheta,.19,0.0,0.0);
-	start_pid(&PID);
+
+	bot.setpoint = 83.8;
+	init_pid(&bot.PID, &bot.setpoint, &bot.accelerometer.yztheta,0.13,0.0001,-0.001);
+	start_pid(&bot.PID);
 
 	pthread_t input_thread;
-	pthread_create(&input_thread,NULL,&Input, (void*)&PID);
+	pthread_create(&input_thread,NULL,&Input, (void*)&bot.PID);
+
+	pthread_t output_thread;
+	pthread_create(&output_thread,NULL,&Output, (void*)&bot);
+
+	char fname[30];
+
+	sprintf(fname,"log-%0.4lf-%0.4lf-%0.4lf.csv",bot.PID.pk,bot.PID.ik,bot.PID.dk);
+
+
+	FILE* fp= fopen(fname,"w+");
 
 	for(;;){
 
-		char a='p';
-
-		if (a=='a'){
-			motor_setMode(&motorA,backward);
-		}
-		if (a=='d'){
-			motor_setMode(&motorA,forward);
-		}
-		if (a=='e'){
-			motor_setMode(&motorA,freewheel);
-		}
-		if (a=='b'){
-			motor_setMode(&motorA,brake);
-		}
-
 		//updateEncoder(&encoderA);
-
-		sem_wait(&PID.output.mutex);
-
-		if(++count > 1000){
-			count =0;
-			printf("theta: %lf set: %lf\r\n",accelerometer.yztheta.average,PID.output.value);
-		}
-		motor_setSpeed(&motorA,PID.output.value);
-		motor_setSpeed(&motorB,PID.output.value);
+		//printf("%lf,%lf\r\n",pipe_get_average(&bot.accelerometer.yztheta),pipe_get_average(&bot.PID.output)*30);
+		fprintf(fp,"%lf,%lf\r\n",pipe_get_average(&bot.accelerometer.yztheta),pipe_get_average(&bot.PID.output)*30);
+		usleep(100000);
 
 	}
 	return EXIT_SUCCESS;
