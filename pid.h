@@ -24,6 +24,7 @@ typedef struct{
 	pipeline_dat output;
 }pid_dat;
 
+
 void* pid_thread(void* param);
 void init_pid(pid_dat* pid,double* setpoint, pipeline_dat* input, double pk, double ik, double dk);
 void start_pid(pid_dat* pid);

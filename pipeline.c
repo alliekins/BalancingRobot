@@ -1,4 +1,6 @@
 /*
+ * Data averaging pipeline. Used to smooth data and connect different functional blocks
+ *
  * pipeline.c
  *
  *  Created on: Feb 26, 2012
@@ -10,7 +12,12 @@
 #include "pipeline.h"
 
 
-
+/**
+ * Initailize a pipeline of length size.
+ *
+ * This pipeline will fill, then post to the mutex when the average is ready
+ *
+ */
 void init_pipeline(pipeline_dat* dat, int size){
 
 	sem_init(&dat->mutex,0,0);
@@ -31,7 +38,11 @@ void init_pipeline(pipeline_dat* dat, int size){
 		dat->values[i]=0.0;
 	}
 }
-
+/**
+ * Add data to a pipeline.
+ *
+ * This function will release the mutex when the pipeline is full.
+ */
 void add_to_pipeline(pipeline_dat* dat, double val){
 
 	sem_wait(&dat->read_mutex);
@@ -45,14 +56,25 @@ void add_to_pipeline(pipeline_dat* dat, double val){
 	dat->index = (dat->index+1) % dat->size;
 
 	sem_post(&dat->read_mutex);
-
 	//if we have filled the pipeline, post to the mutex, saying we are done.
 	if(dat->index==0){
 		sem_post(&dat->mutex);
 	}
 }
 
+/**
+ * Blocking call to get the next data average
+ *
+ */
+double pipe_get_next_average(pipeline_dat* dat){
+	sem_wait(&dat->mutex);
+	return pipe_get_average(dat);
+}
 
+/**
+ * Nonblocking call to get the next data average.
+ *
+ */
 double pipe_get_average(pipeline_dat* dat){
 
 	sem_wait(&dat->read_mutex);

@@ -7,7 +7,11 @@
 
 #include "motor.h"
 
-//Accepts a signed double from -1 to 1 that determines speed of the motor
+/**
+ * Set the motor speed
+ *
+ * Accepts a signed double from -1 to 1 that determines speed of the motor
+ */
 void motor_setSpeed(motor_t* motor, double speed){
 
 	if(speed <0.0){
@@ -17,6 +21,7 @@ void motor_setSpeed(motor_t* motor, double speed){
 		motor_setMode(motor, forward);
 	}
 
+	//Dead zone insertion
 	if(fabs(speed)>0.01){
 		pwm_setDuty(&motor->pwm, fabs(speed));
 	}else{
@@ -25,22 +30,28 @@ void motor_setSpeed(motor_t* motor, double speed){
 	}
 }
 
+
+/**
+ * Set the motor mode
+ *
+ * mode=freewheel,forward,backward,brake
+ */
 void motor_setMode(motor_t* motor, motor_mode mode){
 
 	if (motor->current_mode!=mode){
 		motor->current_mode=mode;
 
+		//set the appropraite bits of  the motor control.
 		setPin(motor->cnt_port,motor->input_1_pin,(mode & 0b01));
 		setPin(motor->cnt_port,motor->input_2_pin,(mode & 0b10));
 	}
-
-	/*char current=in8(motor->cnt_port);
-	  current = current & ~((1<<motor->input_1_pin) | (1<<motor->input_2_pin));
-
-	  out8(motor->cnt_port, current| (((mode & 0b01)<<motor->input_1_pin) |((mode & 0b10)<<(motor->input_2_pin-1))) );*/
 }
 
-
+/**
+ * Initializes a motor object
+ *
+ * mode=freewheel,forward,backward,brake
+ */
 void init_motor(motor_t* motor, uintptr_t port, char input_1_pin, char input_2_pin, char pwmPin){
 
 	motor->cnt_port=port;

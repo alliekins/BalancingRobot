@@ -8,12 +8,13 @@
 #include <stdint.h>
 #include <semaphore.h>
 #include <hw/inout.h>
+#include <stdlib.h>
 #include <stdio.h>
 
 #ifndef IODEFS_H_
 #define IODEFS_H_
 
-
+int initialize_handles();
 
 void setPin(uintptr_t port, char pin, char value);
 

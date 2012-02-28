@@ -8,6 +8,12 @@
 #include "pwm.h"
 #include <sched.h>
 
+/**
+ * PWM thread.
+ *
+ * This thread simply runs until the PWM structure is asked to stop.
+ *
+ */
 void* pwm_thread(void* param){
 	pwm_args* args = (pwm_args*)param;
 
@@ -19,6 +25,8 @@ void* pwm_thread(void* param){
 	struct itimerspec value;
 
 	while(!args->stop){
+
+		//set the pin high
 		if(args->high_time>0){
 			sem_wait(&port_mutex);
 			args->currentOutput= in8(args->cnt_port);
@@ -29,6 +37,8 @@ void* pwm_thread(void* param){
 			nanosleep(&value,NULL); //more friendly
 			//nanospin(&value);//much faster.. up it_value
 		}
+
+		//set the pin low
 		if(args->period-args->high_time>0){
 			sem_wait(&port_mutex);
 			args->currentOutput= in8(args->cnt_port);
@@ -48,6 +58,12 @@ void* pwm_thread(void* param){
 	return 0;
 }
 
+
+/**
+ * Set the PWM duty cycle
+ *
+ *
+ */
 void pwm_setDuty(pwm_args* args, double duty){
 
 	args->high_time=(int) (duty * args->period);
@@ -59,6 +75,10 @@ void pwm_setDuty(pwm_args* args, double duty){
 }
 
 
+/**
+ * Initialize and start the PWM thread
+ *
+ */
 void startPWM(pwm_args* args,uintptr_t outputPort, char output_mask, int high_time, int period){
 
 	args->high_time=high_time;
@@ -69,6 +89,7 @@ void startPWM(pwm_args* args,uintptr_t outputPort, char output_mask, int high_ti
 	args->stop=0;
 
 	pthread_create(&args->output_thread,NULL, &pwm_thread,(void*)args); //create a new thread for pwm
+	//set the priority to max so we get decent PWM. This beats the crap out of the CPU
 	pthread_setschedprio(args->output_thread,sched_get_priority_max(SCHED_FIFO));
 
 }

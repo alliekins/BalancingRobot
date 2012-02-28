@@ -1,4 +1,7 @@
 /*
+ *
+ *  Generic H-bridge motor controller driver
+ *
  * motor.h
  *
  *  Created on: Feb 24, 2012
@@ -20,11 +23,6 @@ typedef enum {
 			brake		= 0b11
 }motor_mode;
 
-/**
- * L298N motor controller driver
- *
- *
- */
 typedef struct{
 	uintptr_t cnt_port; //motor control ouput port
 	char input_1_pin;
@@ -34,6 +32,12 @@ typedef struct{
 }motor_t;
 
 void motor_setSpeed(motor_t* motor, double speed);
+
+/**
+ * Set the motor mode
+ *
+ * mode=freewheel,forward,backward,brake
+ */
 void motor_setMode(motor_t* motor, motor_mode mode);
 void init_motor(motor_t* motor, uintptr_t port, char input_1_pin, char input_2_pin, char pwmPin);
 
